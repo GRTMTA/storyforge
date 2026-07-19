@@ -5,6 +5,7 @@ import type { Choice } from '@/types/story'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { CharacterPanel } from './CharacterPanel'
 import { Wand2, ChevronRight, BookMarked, Users, Lightbulb, Map, AlertTriangle } from 'lucide-react'
 
 function SceneLoader() {
@@ -52,6 +53,7 @@ export function PlayStep() {
   const { state, dispatch } = useStory()
   const { currentScene, currentChoices, storyState, setup, projectId, generating, error } = state
   const [stateVisible, setStateVisible] = useState(false)
+  const [charPanelVisible, setCharPanelVisible] = useState(false)
   const [guardrailWarnings, setGuardrailWarnings] = useState<string[]>([])
 
   const handleChoice = async (choice: Choice) => {
@@ -90,14 +92,23 @@ export function PlayStep() {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setStateVisible(v => !v)}
-              className="text-xs"
-            >
-              <BookMarked className="w-3.5 h-3.5" />
-              State
-            </Button>
+                variant="ghost"
+                size="sm"
+                onClick={() => setStateVisible(v => !v)}
+                className="text-xs"
+              >
+                <BookMarked className="w-3.5 h-3.5" />
+                State
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCharPanelVisible(v => !v)}
+                className="text-xs"
+              >
+                <Users className="w-3.5 h-3.5" />
+                Characters
+              </Button>
             <Button
               variant="outline"
               size="sm"
@@ -142,6 +153,14 @@ export function PlayStep() {
               </div>
             )}
           </Card>
+        )}
+
+        {/* Character panel */}
+        {charPanelVisible && projectId && (
+          <CharacterPanel
+            projectId={projectId}
+            onClose={() => setCharPanelVisible(false)}
+          />
         )}
 
         {/* Guardrail warnings */}
