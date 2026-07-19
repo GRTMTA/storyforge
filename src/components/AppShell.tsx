@@ -1,10 +1,11 @@
 import { useStory } from '@/contexts/StoryContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { AuthScreen } from '@/components/auth/AuthScreen'
+import { Dashboard } from '@/components/dashboard/Dashboard'
 import { SetupStep } from '@/components/setup/SetupStep'
 import { PlayStep } from '@/components/play/PlayStep'
 import { ReviewStep } from '@/components/review/ReviewStep'
-import { BookOpen, LogOut } from 'lucide-react'
+import { BookOpen, LogOut, LayoutDashboard } from 'lucide-react'
 
 function StepIndicator({ current }: { current: string }) {
   const steps = [
@@ -12,6 +13,8 @@ function StepIndicator({ current }: { current: string }) {
     { id: 'play', label: 'Play' },
     { id: 'review', label: 'Review' },
   ]
+  // dashboard step has no indicator
+  if (current === 'dashboard') return null
   const idx = steps.findIndex(s => s.id === current)
   return (
     <div className="flex items-center gap-1">
@@ -42,17 +45,29 @@ function StepIndicator({ current }: { current: string }) {
 
 function NavBar() {
   const { user, signOut } = useAuth()
-  const { state } = useStory()
+  const { state, dispatch } = useStory()
 
   return (
     <nav className="sticky top-0 z-40 bg-[#1A1A3E]/90 backdrop-blur border-b border-[#3D3D7A]">
       <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <button
+          onClick={() => dispatch({ type: 'RESET' })}
+          className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+        >
           <BookOpen className="w-5 h-5 text-[#F5A623]" />
           <span className="font-bold text-[#F8F6F0]">StoryForge</span>
-        </div>
+        </button>
         <StepIndicator current={state.step} />
         <div className="flex items-center gap-3">
+          {user && state.step !== 'dashboard' && (
+            <button
+              onClick={() => dispatch({ type: 'RESET' })}
+              className="p-1.5 rounded-lg text-[#F8F6F0]/40 hover:text-[#F8F6F0] hover:bg-[#2D2D5E] transition-colors cursor-pointer"
+              title="My stories"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+            </button>
+          )}
           {user && (
             <>
               <span className="text-xs text-[#F8F6F0]/40 hidden sm:block truncate max-w-36">
@@ -93,6 +108,7 @@ export function AppShell() {
   return (
     <>
       <NavBar />
+      {state.step === 'dashboard' && <Dashboard />}
       {state.step === 'setup' && <SetupStep />}
       {state.step === 'play' && <PlayStep />}
       {state.step === 'review' && <ReviewStep />}

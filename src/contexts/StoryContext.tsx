@@ -23,6 +23,7 @@ type Action =
   | { type: 'SET_STEP'; payload: AppStep }
   | { type: 'SET_PROJECT'; payload: { projectId: string; setup: ProjectSetup } }
   | { type: 'ADD_SCENE'; payload: { scene: Scene; choices: Choice[] } }
+  | { type: 'LOAD_HISTORY'; payload: { scenes: Scene[]; currentChoices: Choice[] } }
   | { type: 'SET_CURRENT_SCENE'; payload: Scene }
   | { type: 'SET_STORY_STATE'; payload: StoryState }
   | { type: 'SET_GENERATING'; payload: boolean }
@@ -30,7 +31,7 @@ type Action =
   | { type: 'RESET' }
 
 const initialState: StoryStore = {
-  step: 'setup',
+  step: 'dashboard',
   projectId: null,
   setup: null,
   scenes: [],
@@ -46,7 +47,7 @@ function reducer(state: StoryStore, action: Action): StoryStore {
     case 'SET_STEP':
       return { ...state, step: action.payload }
     case 'SET_PROJECT':
-      return { ...state, ...action.payload }
+      return { ...state, ...action.payload, scenes: [], currentScene: null, currentChoices: [] }
     case 'ADD_SCENE':
       return {
         ...state,
@@ -54,6 +55,15 @@ function reducer(state: StoryStore, action: Action): StoryStore {
         currentScene: action.payload.scene,
         currentChoices: action.payload.choices,
       }
+    case 'LOAD_HISTORY': {
+      const last = action.payload.scenes[action.payload.scenes.length - 1] ?? null
+      return {
+        ...state,
+        scenes: action.payload.scenes,
+        currentScene: last,
+        currentChoices: action.payload.currentChoices,
+      }
+    }
     case 'SET_CURRENT_SCENE':
       return { ...state, currentScene: action.payload }
     case 'SET_STORY_STATE':

@@ -44,6 +44,59 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
   return projectId
 }
 
+/** List all projects for a user (for resume screen) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function listProjects(userId: string): Promise<any[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('projects')
+    .select('id, title, genre, tone, status, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+/** Load a full project setup (title, genre, setting, tone, guardrails, characters) */
+export async function loadProjectSetup(projectId: string): Promise<ProjectSetup> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  const { data: project, error: projErr } = await db
+    .from('projects')
+    .select('title, genre, setting, tone, guardrails')
+    .eq('id', projectId)
+    .single()
+
+  if (projErr || !project) throw new Error(projErr?.message ?? 'Project not found')
+
+  const { data: chars, error: charErr } = await db
+    .from('characters')
+    .select('id, name, role, description, traits, backstory')
+    .eq('project_id', projectId)
+
+  if (charErr) throw new Error(charErr.message)
+
+  return {
+    title: project.title,
+    genre: project.genre,
+    setting: project.setting,
+    tone: project.tone,
+    guardrails: project.guardrails ?? [],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    characters: (chars ?? []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      role: c.role,
+      description: c.description,
+      traits: c.traits ?? [],
+      backstory: c.backstory,
+    })),
+  }
+}
+
 /** Call the generate-scene Edge Function */
 export async function generateScene(
   projectId: string,
@@ -74,14 +127,15 @@ export async function loadScenes(projectId: string): Promise<Scene[]> {
   return ((data ?? []) as any[]).map(rowToScene)
 }
 
-/** Load choices for a scene */
-export async function loadChoices(sceneId: string): Promise<Choice[]> {
+/** Load choices for the most recent scene of a project */
+export async function loadChoicesForScene(sceneId: string): Promise<Choice[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
   const { data, error } = await db
     .from('choices')
     .select('*')
     .eq('scene_id', sceneId)
+    .is('leads_to_scene_id', null) // only unresolved choices
 
   if (error) throw new Error(error.message)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -103,7 +157,7 @@ export async function loadStoryState(projectId: string): Promise<StoryState | nu
   return rowToStoryState(data)
 }
 
-/** Export story as formatted text */
+/** Export story as formatted markdown */
 export async function exportStoryAsText(projectId: string, title: string): Promise<string> {
   const scenes = await loadScenes(projectId)
   const lines: string[] = [`# ${title}`, '', '---', '']

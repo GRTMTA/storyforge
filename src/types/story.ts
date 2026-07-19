@@ -54,7 +54,7 @@ export interface SceneWithChoices extends Scene {
   choices: Choice[]
 }
 
-export type AppStep = 'setup' | 'play' | 'review'
+export type AppStep = 'dashboard' | 'setup' | 'play' | 'review'
 
 export interface GenerateScenePayload {
   projectId: string
