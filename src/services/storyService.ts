@@ -8,6 +8,7 @@ import type {
   GenerateSceneResponse,
   Character,
   CharacterGuardrail,
+  CharacterRelation,
 } from '@/types/story'
 
 // ── eslint-disable for all `any` casts needed to work around Supabase generic inference ──
@@ -41,7 +42,9 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
       role: char.role,
       description: char.description,
       traits: char.traits,
-      
+      biography: char.biography ?? '',
+      custom_fields: char.customFields ?? {},
+      relations: char.relations ?? [],
       current_state: {},
     })
   }
@@ -101,7 +104,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 
   const { data: chars, error: charErr } = await db()
     .from('characters')
-    .select('id, name, role, description, traits')
+    .select('id, name, role, description, traits, biography, custom_fields, relations')
     .eq('project_id', projectId)
 
   if (charErr) throw new Error(charErr.message)
@@ -112,14 +115,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
     setting: project.setting,
     tone: project.tone,
     guardrails: project.guardrails ?? [],
-    characters: (chars ?? []).map((c: any): Character => ({
-      id: c.id,
-      name: c.name,
-      role: c.role,
-      description: c.description,
-      traits: c.traits ?? [],
-      
-    })),
+    characters: (chars ?? []).map(rowToCharacter),
   }
 }
 
@@ -127,19 +123,56 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 export async function loadCharacters(projectId: string): Promise<Character[]> {
   const { data, error } = await db()
     .from('characters')
-    .select('id, name, role, description, traits')
+    .select('id, name, role, description, traits, biography, custom_fields, relations')
     .eq('project_id', projectId)
     .order('role', { ascending: true })
 
   if (error) throw new Error(error.message)
-  return (data ?? []).map((c: any): Character => ({
-    id: c.id,
-    name: c.name,
-    role: c.role,
-    description: c.description,
-    traits: c.traits ?? [],
-    
-  }))
+  return (data ?? []).map(rowToCharacter)
+}
+
+/** Update a character's fields */
+export async function updateCharacter(
+  characterId: string,
+  patch: Partial<Pick<Character, 'name' | 'role' | 'description' | 'traits' | 'biography' | 'customFields' | 'relations'>>,
+): Promise<void> {
+  const dbPatch: Record<string, unknown> = {}
+  if (patch.name       !== undefined) dbPatch.name         = patch.name
+  if (patch.role       !== undefined) dbPatch.role         = patch.role
+  if (patch.description!== undefined) dbPatch.description  = patch.description
+  if (patch.traits     !== undefined) dbPatch.traits       = patch.traits
+  if (patch.biography  !== undefined) dbPatch.biography    = patch.biography
+  if (patch.customFields!== undefined) dbPatch.custom_fields = patch.customFields
+  if (patch.relations  !== undefined) dbPatch.relations    = patch.relations
+  const { error } = await db().from('characters').update(dbPatch).eq('id', characterId)
+  if (error) throw new Error(error.message)
+}
+
+/** Add a character to a project */
+export async function addCharacter(projectId: string, char: Omit<Character, 'id'>): Promise<Character> {
+  const { data, error } = await db()
+    .from('characters')
+    .insert({
+      project_id: projectId,
+      name: char.name,
+      role: char.role,
+      description: char.description,
+      traits: char.traits,
+      biography: char.biography ?? '',
+      custom_fields: char.customFields ?? {},
+      relations: char.relations ?? [],
+      current_state: {},
+    })
+    .select('id, name, role, description, traits, biography, custom_fields, relations')
+    .single()
+  if (error || !data) throw new Error(error?.message ?? 'Failed to add character')
+  return rowToCharacter(data)
+}
+
+/** Delete a character */
+export async function deleteCharacter(characterId: string): Promise<void> {
+  const { error } = await db().from('characters').delete().eq('id', characterId)
+  if (error) throw new Error(error.message)
 }
 
 /** Load per-character guardrails */
@@ -189,9 +222,10 @@ export async function generateScene(
   parentSceneId?: string,
   choiceLabel?: string,
   storyState?: StoryState,
+  branchId?: string,
 ): Promise<GenerateSceneResponse> {
   const { data, error } = await supabase.functions.invoke<GenerateSceneResponse>('generate-scene', {
-    body: { projectId, setup, parentSceneId, choiceLabel, storyState },
+    body: { projectId, setup, parentSceneId, choiceLabel, storyState, branchId },
   })
   if (error || !data) throw new Error(error?.message ?? 'Edge Function error')
   return data
@@ -209,13 +243,24 @@ export async function loadScenes(projectId: string): Promise<Scene[]> {
   return (data ?? []).map(rowToScene)
 }
 
-/** Load choices for a scene (unresolved only) */
+/** Load choices for a scene (unresolved / pending only) */
 export async function loadChoicesForScene(sceneId: string): Promise<Choice[]> {
   const { data, error } = await db()
     .from('choices')
     .select('*')
     .eq('scene_id', sceneId)
     .is('leads_to_scene_id', null)
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(rowToChoice)
+}
+
+/** Load all choices for a scene (including resolved) */
+export async function loadAllChoicesForScene(sceneId: string): Promise<Choice[]> {
+  const { data, error } = await db()
+    .from('choices')
+    .select('*')
+    .eq('scene_id', sceneId)
 
   if (error) throw new Error(error.message)
   return (data ?? []).map(rowToChoice)
@@ -250,6 +295,19 @@ export async function exportStoryAsText(projectId: string, title: string): Promi
 }
 
 // ── Row mappers ────────────────────────────────────────────────────────────────
+
+function rowToCharacter(c: any): Character {
+  return {
+    id: c.id,
+    name: c.name,
+    role: c.role,
+    description: c.description,
+    traits: c.traits ?? [],
+    biography: c.biography ?? '',
+    customFields: (c.custom_fields as Record<string, string>) ?? {},
+    relations: (c.relations as CharacterRelation[]) ?? [],
+  }
+}
 
 function rowToScene(row: any): Scene {
   return {
@@ -287,4 +345,119 @@ function rowToStoryState(data: any): StoryState {
     characterStates: (data.character_states as Record<string, Record<string, unknown>>) ?? {},
     turnCount: data.turn_count as number,
   }
+}
+
+// ── Branch helpers ─────────────────────────────────────────────────────────────
+
+export interface Branch {
+  id: string
+  projectId: string
+  name: string
+  description: string
+  isActive: boolean
+  rootSceneId: string | null
+  createdAt: string
+}
+
+export interface Savepoint {
+  id: string
+  projectId: string
+  branchId: string | null
+  sceneId: string
+  name: string
+  description: string
+  createdAt: string
+}
+
+export async function listBranches(projectId: string): Promise<Branch[]> {
+  const { data, error } = await db()
+    .from('branches')
+    .select('id, project_id, name, description, is_active, root_scene_id, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: any): Branch => ({
+    id: r.id, projectId: r.project_id, name: r.name,
+    description: r.description, isActive: r.is_active,
+    rootSceneId: r.root_scene_id, createdAt: r.created_at,
+  }))
+}
+
+export async function createBranch(
+  projectId: string,
+  name: string,
+  description: string,
+  rootSceneId: string | null,
+): Promise<Branch> {
+  const { data, error } = await db()
+    .from('branches')
+    .insert({ project_id: projectId, name, description, is_active: false, root_scene_id: rootSceneId })
+    .select().single()
+  if (error || !data) throw new Error(error?.message ?? 'Failed to create branch')
+  return { id: data.id, projectId: data.project_id, name: data.name, description: data.description, isActive: data.is_active, rootSceneId: data.root_scene_id, createdAt: data.created_at }
+}
+
+export async function setActiveBranch(projectId: string, branchId: string): Promise<void> {
+  // deactivate all
+  await db().from('branches').update({ is_active: false }).eq('project_id', projectId)
+  // activate target
+  await db().from('branches').update({ is_active: true }).eq('id', branchId)
+}
+
+export async function deleteBranch(branchId: string): Promise<void> {
+  const { error } = await db().from('branches').delete().eq('id', branchId)
+  if (error) throw new Error(error.message)
+}
+
+export async function listSavepoints(projectId: string): Promise<Savepoint[]> {
+  const { data, error } = await db()
+    .from('savepoints')
+    .select('id, project_id, branch_id, scene_id, name, description, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: any): Savepoint => ({
+    id: r.id, projectId: r.project_id, branchId: r.branch_id,
+    sceneId: r.scene_id, name: r.name, description: r.description, createdAt: r.created_at,
+  }))
+}
+
+export async function createSavepoint(
+  projectId: string,
+  sceneId: string,
+  name: string,
+  description: string,
+  branchId: string | null,
+): Promise<Savepoint> {
+  const { data, error } = await db()
+    .from('savepoints')
+    .insert({ project_id: projectId, scene_id: sceneId, name, description, branch_id: branchId })
+    .select().single()
+  if (error || !data) throw new Error(error?.message ?? 'Failed to create savepoint')
+  return { id: data.id, projectId: data.project_id, branchId: data.branch_id, sceneId: data.scene_id, name: data.name, description: data.description, createdAt: data.created_at }
+}
+
+export async function deleteSavepoint(savepointId: string): Promise<void> {
+  const { error } = await db().from('savepoints').delete().eq('id', savepointId)
+  if (error) throw new Error(error.message)
+}
+
+/** Load scenes for a specific branch (null branchId = unbranchd / main) */
+export async function loadScenesByBranch(projectId: string, branchId: string | null): Promise<Scene[]> {
+  let q = db().from('scenes').select('*').eq('project_id', projectId)
+  if (branchId) q = q.eq('branch_id', branchId)
+  else q = q.is('branch_id', null)
+  const { data, error } = await q.order('scene_order', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(rowToScene)
+}
+
+/** Ensure a "main" branch exists for a project, return its id */
+export async function ensureMainBranch(projectId: string): Promise<string> {
+  const { data } = await db()
+    .from('branches').select('id').eq('project_id', projectId).eq('name', 'main').maybeSingle()
+  if (data?.id) return data.id
+  const branch = await createBranch(projectId, 'main', 'Main story branch', null)
+  await setActiveBranch(projectId, branch.id)
+  return branch.id
 }
