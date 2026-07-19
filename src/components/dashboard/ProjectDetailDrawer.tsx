@@ -280,17 +280,17 @@ export function ProjectDetailDrawer({ project, onClose, onResume }: Props) {
   const [loadingData, setLoadingData] = useState(true)
 
   useEffect(() => {
-    Promise.all([
-      loadProjectSetup(project.id),
-      loadCharacters(project.id),
-      loadCharacterGuardrails(project.id),
-      loadScenes(project.id),
-    ]).then(([s, c, g, sc]) => {
-      setSetup(s)
-      setCharacters(c)
-      setGuardrails(g)
-      setScenes(sc)
-    }).finally(() => setLoadingData(false))
+    let done = 0
+    const finish = () => { done++; if (done === 4) setLoadingData(false) }
+
+    loadProjectSetup(project.id)
+      .then(s => setSetup(s)).catch(() => {/* keep null */}).finally(finish)
+    loadCharacters(project.id)
+      .then(c => setCharacters(c)).catch(() => setCharacters([])).finally(finish)
+    loadCharacterGuardrails(project.id)
+      .then(g => setGuardrails(g)).catch(() => setGuardrails([])).finally(finish)
+    loadScenes(project.id)
+      .then(sc => setScenes(sc)).catch(() => setScenes([])).finally(finish)
   }, [project.id])
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
