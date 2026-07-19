@@ -7,6 +7,17 @@ export interface Character {
   description: string
   traits: string[]
   backstory: string
+  // optional relationship fields
+  relatedTo?: string[]      // ids of related characters
+  relationshipLabel?: string // e.g. "sibling of", "mentor of"
+}
+
+export interface CharacterGuardrail {
+  id: string
+  characterId: string
+  projectId: string
+  rule: string
+  createdAt: string
 }
 
 export interface ProjectSetup {
@@ -16,6 +27,15 @@ export interface ProjectSetup {
   tone: string
   guardrails: string[]
   characters: Character[]
+}
+
+export interface ProjectStats {
+  sceneCount: number
+  characterCount: number
+  branchCount: number   // scenes with >1 child
+  endingCount: number
+  turnCount: number
+  lastPlayedAt: string | null
 }
 
 export interface Scene {

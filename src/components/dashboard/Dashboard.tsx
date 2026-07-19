@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStory } from '@/contexts/StoryContext'
-import {
-  listProjects,
-  loadProjectSetup,
-  loadScenes,
-  loadChoicesForScene,
-  loadStoryState,
-} from '@/services/storyService'
+import { listProjects, loadProjectStats, loadProjectSetup, loadScenes, loadChoicesForScene, loadStoryState } from '@/services/storyService'
 import { Button } from '@/components/ui/Button'
-import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { BookOpen, Plus, Clock, Wand2 } from 'lucide-react'
+import { ProjectDetailDrawer } from './ProjectDetailDrawer'
+import { BookOpen, Plus, Clock, Wand2, GitBranch, Users, Film, Trophy } from 'lucide-react'
+import type { ProjectStats } from '@/types/story'
 
 interface ProjectRow {
   id: string
@@ -23,18 +18,44 @@ interface ProjectRow {
   updated_at: string
 }
 
+function StatPill({ icon: Icon, value, label }: { icon: React.ElementType; value: number; label: string }) {
+  return (
+    <div className="flex items-center gap-1 text-[#F8F6F0]/50 text-xs">
+      <Icon className="w-3 h-3 text-[#F5A623]/60" />
+      <span className="font-semibold text-[#F8F6F0]/70">{value}</span>
+      <span>{label}</span>
+    </div>
+  )
+}
+
 export function Dashboard() {
   const { user } = useAuth()
   const { dispatch } = useStory()
   const [projects, setProjects] = useState<ProjectRow[]>([])
+  const [stats, setStats] = useState<Record<string, ProjectStats>>({})
   const [loading, setLoading] = useState(true)
   const [resuming, setResuming] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [detailProject, setDetailProject] = useState<ProjectRow | null>(null)
 
   useEffect(() => {
     if (!user) return
     listProjects(user.id)
-      .then(setProjects)
+      .then(async (rows) => {
+        setProjects(rows)
+        // load stats for all projects in parallel (best-effort)
+        const entries = await Promise.allSettled(
+          rows.map(async (p: ProjectRow) => {
+            const s = await loadProjectStats(p.id)
+            return [p.id, s] as [string, ProjectStats]
+          })
+        )
+        const map: Record<string, ProjectStats> = {}
+        for (const r of entries) {
+          if (r.status === 'fulfilled') map[r.value[0]] = r.value[1]
+        }
+        setStats(map)
+      })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load projects'))
       .finally(() => setLoading(false))
   }, [user])
@@ -48,15 +69,12 @@ export function Dashboard() {
         loadScenes(projectId),
         loadStoryState(projectId),
       ])
-
       dispatch({ type: 'SET_PROJECT', payload: { projectId, setup } })
-
       if (scenes.length > 0) {
         const lastScene = scenes[scenes.length - 1]
         const choices = await loadChoicesForScene(lastScene.id)
         dispatch({ type: 'LOAD_HISTORY', payload: { scenes, currentChoices: choices } })
       }
-
       if (storyState) dispatch({ type: 'SET_STORY_STATE', payload: storyState })
       dispatch({ type: 'SET_STEP', payload: scenes.length > 0 ? 'play' : 'setup' })
     } catch (e) {
@@ -66,91 +84,127 @@ export function Dashboard() {
     }
   }
 
-  const handleNew = () => dispatch({ type: 'SET_STEP', payload: 'setup' })
-
   const formatDate = (iso: string) => {
     const d = new Date(iso)
     const now = new Date()
     const diffH = Math.floor((now.getTime() - d.getTime()) / 36e5)
     if (diffH < 1) return 'Just now'
     if (diffH < 24) return `${diffH}h ago`
+    if (diffH < 24 * 7) return `${Math.floor(diffH / 24)}d ago`
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   }
 
   return (
     <div className="min-h-screen bg-[#1A1A3E] px-4 py-10">
-      <div className="max-w-2xl mx-auto">
-        {/* Hero */}
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="w-14 h-14 rounded-2xl bg-[#F5A623]/15 border border-[#F5A623]/30 flex items-center justify-center">
-              <BookOpen className="w-7 h-7 text-[#F5A623]" />
+      <div className="max-w-3xl mx-auto">
+
+        {/* ── Header ────────────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-[#F5A623]/15 border border-[#F5A623]/30 flex items-center justify-center">
+              <BookOpen className="w-6 h-6 text-[#F5A623]" />
             </div>
-            <div className="text-left">
-              <h1 className="text-3xl font-bold text-[#F8F6F0] leading-tight">StoryForge</h1>
-              <p className="text-[#F8F6F0]/40 text-sm">AI-powered interactive narrative</p>
+            <div>
+              <h1 className="text-2xl font-bold text-[#F8F6F0]">StoryForge</h1>
+              <p className="text-[#F8F6F0]/40 text-sm">Your narrative worlds</p>
             </div>
           </div>
-          <Button size="lg" onClick={handleNew} className="gap-2">
-            <Plus className="w-4 h-4" />
-            New Story
+          <Button onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })} className="gap-2">
+            <Plus className="w-4 h-4" /> New Story
           </Button>
         </div>
 
-        {/* Error */}
+        {/* ── Error ─────────────────────────────────────────────────────────── */}
         {error && (
           <div className="mb-4 p-3 bg-red-500/15 border border-red-500/30 rounded-xl text-red-400 text-sm">
             {error}
           </div>
         )}
 
-        {/* Project list */}
+        {/* ── Project grid ──────────────────────────────────────────────────── */}
         {loading ? (
-          <div className="flex justify-center py-12">
+          <div className="flex justify-center py-16">
             <div className="w-8 h-8 rounded-full border-4 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
           </div>
         ) : projects.length === 0 ? (
-          <div className="text-center py-16 text-[#F8F6F0]/30">
-            <Wand2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">No stories yet. Start your first one above.</p>
+          <div className="text-center py-20 text-[#F8F6F0]/30">
+            <Wand2 className="w-12 h-12 mx-auto mb-4 opacity-30" />
+            <p className="font-medium text-[#F8F6F0]/50 mb-1">No stories yet</p>
+            <p className="text-sm">Click "New Story" to forge your first narrative.</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            <h2 className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-widest px-1 mb-1">
-              Your Stories
-            </h2>
-            {projects.map(p => (
-              <Card
-                key={p.id}
-                className="flex items-center gap-4 p-4 hover:border-[#F5A623]/40 transition-colors"
-              >
-                <div className="w-10 h-10 rounded-xl bg-[#F5A623]/10 border border-[#F5A623]/20 flex items-center justify-center shrink-0">
-                  <BookOpen className="w-5 h-5 text-[#F5A623]" />
-                </div>
-                <CardContent className="flex-1 min-w-0 p-0">
-                  <p className="font-semibold text-[#F8F6F0] truncate">{p.title}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="gold" className="text-[10px]">{p.genre}</Badge>
-                    <Badge variant="default" className="text-[10px]">{p.tone}</Badge>
-                    <span className="text-[#F8F6F0]/30 text-xs flex items-center gap-1 ml-auto">
-                      <Clock className="w-3 h-3" />
-                      {formatDate(p.updated_at)}
-                    </span>
-                  </div>
-                </CardContent>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  loading={resuming === p.id}
-                  onClick={() => handleResume(p.id)}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {projects.map(p => {
+              const s = stats[p.id]
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => setDetailProject(p)}
+                  className="group relative bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-2xl p-5 cursor-pointer hover:border-[#F5A623]/50 hover:bg-[#2D2D5E]/60 transition-all"
                 >
-                  Resume
-                </Button>
-              </Card>
-            ))}
+                  {/* Genre badge */}
+                  <div className="flex items-center justify-between mb-3">
+                    <Badge variant="gold" className="text-[10px]">{p.genre}</Badge>
+                    <Badge variant="default" className="text-[10px] flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      {formatDate(p.updated_at)}
+                    </Badge>
+                  </div>
+
+                  {/* Title */}
+                  <h3 className="font-bold text-[#F8F6F0] text-base leading-snug mb-1 group-hover:text-[#F5A623] transition-colors">
+                    {p.title}
+                  </h3>
+                  <p className="text-[#F8F6F0]/40 text-xs mb-4">{p.tone}</p>
+
+                  {/* Stats row */}
+                  {s ? (
+                    <div className="flex flex-wrap gap-3 mb-4">
+                      <StatPill icon={Film} value={s.sceneCount} label="scenes" />
+                      <StatPill icon={Users} value={s.characterCount} label="characters" />
+                      <StatPill icon={GitBranch} value={s.branchCount} label="branches" />
+                      <StatPill icon={Trophy} value={s.endingCount} label="endings" />
+                    </div>
+                  ) : (
+                    <div className="h-5 mb-4 flex items-center">
+                      <div className="w-24 h-3 bg-[#3D3D7A]/60 rounded-full animate-pulse" />
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 text-xs"
+                      onClick={() => setDetailProject(p)}
+                    >
+                      View Details
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 text-xs"
+                      loading={resuming === p.id}
+                      onClick={() => handleResume(p.id)}
+                    >
+                      Resume
+                    </Button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
+
+      {/* ── Project Detail Drawer ─────────────────────────────────────────── */}
+      {detailProject && (
+        <ProjectDetailDrawer
+          project={detailProject}
+          onClose={() => setDetailProject(null)}
+          onResume={() => { setDetailProject(null); handleResume(detailProject.id) }}
+        />
+      )}
     </div>
   )
 }

@@ -1,18 +1,23 @@
 import { supabase } from '@/lib/supabase'
 import type {
   ProjectSetup,
+  ProjectStats,
   Scene,
   Choice,
   StoryState,
   GenerateSceneResponse,
+  Character,
+  CharacterGuardrail,
 } from '@/types/story'
+
+// ── eslint-disable for all `any` casts needed to work around Supabase generic inference ──
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+const db = () => supabase as any
 
 /** Create project + characters in DB, returns projectId */
 export async function createProject(setup: ProjectSetup, userId: string): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-
-  const { data: project, error: projectErr } = await db
+  const { data: project, error: projectErr } = await db()
     .from('projects')
     .insert({
       user_id: userId,
@@ -30,7 +35,7 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
   const projectId: string = project.id
 
   for (const char of setup.characters) {
-    await db.from('characters').insert({
+    await db().from('characters').insert({
       project_id: projectId,
       name: char.name,
       role: char.role,
@@ -44,12 +49,9 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
   return projectId
 }
 
-/** List all projects for a user (for resume screen) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/** List all projects for a user */
 export async function listProjects(userId: string): Promise<any[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
+  const { data, error } = await db()
     .from('projects')
     .select('id, title, genre, tone, status, created_at, updated_at')
     .eq('user_id', userId)
@@ -59,12 +61,37 @@ export async function listProjects(userId: string): Promise<any[]> {
   return data ?? []
 }
 
-/** Load a full project setup (title, genre, setting, tone, guardrails, characters) */
-export async function loadProjectSetup(projectId: string): Promise<ProjectSetup> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
+/** Get per-project stats: scene count, character count, branches, endings */
+export async function loadProjectStats(projectId: string): Promise<ProjectStats> {
+  const [{ count: sceneCount }, { count: charCount }, { data: scenes }, { data: state }] =
+    await Promise.all([
+      db().from('scenes').select('id', { count: 'exact', head: true }).eq('project_id', projectId),
+      db().from('characters').select('id', { count: 'exact', head: true }).eq('project_id', projectId),
+      db().from('scenes').select('id, parent_scene_id, is_ending').eq('project_id', projectId),
+      db().from('story_state').select('turn_count, updated_at').eq('project_id', projectId).maybeSingle(),
+    ])
 
-  const { data: project, error: projErr } = await db
+  const sceneArr: any[] = scenes ?? []
+  const parentCounts: Record<string, number> = {}
+  for (const s of sceneArr) {
+    if (s.parent_scene_id) parentCounts[s.parent_scene_id] = (parentCounts[s.parent_scene_id] ?? 0) + 1
+  }
+  const branchCount = Object.values(parentCounts).filter(c => c > 1).length
+  const endingCount = sceneArr.filter(s => s.is_ending).length
+
+  return {
+    sceneCount: sceneCount ?? 0,
+    characterCount: charCount ?? 0,
+    branchCount,
+    endingCount,
+    turnCount: state?.turn_count ?? 0,
+    lastPlayedAt: state?.updated_at ?? null,
+  }
+}
+
+/** Load a full project setup */
+export async function loadProjectSetup(projectId: string): Promise<ProjectSetup> {
+  const { data: project, error: projErr } = await db()
     .from('projects')
     .select('title, genre, setting, tone, guardrails')
     .eq('id', projectId)
@@ -72,7 +99,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 
   if (projErr || !project) throw new Error(projErr?.message ?? 'Project not found')
 
-  const { data: chars, error: charErr } = await db
+  const { data: chars, error: charErr } = await db()
     .from('characters')
     .select('id, name, role, description, traits, backstory')
     .eq('project_id', projectId)
@@ -85,8 +112,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
     setting: project.setting,
     tone: project.tone,
     guardrails: project.guardrails ?? [],
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    characters: (chars ?? []).map((c: any) => ({
+    characters: (chars ?? []).map((c: any): Character => ({
       id: c.id,
       name: c.name,
       role: c.role,
@@ -95,6 +121,65 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
       backstory: c.backstory,
     })),
   }
+}
+
+/** Load characters with full detail for a project */
+export async function loadCharacters(projectId: string): Promise<Character[]> {
+  const { data, error } = await db()
+    .from('characters')
+    .select('id, name, role, description, traits, backstory')
+    .eq('project_id', projectId)
+    .order('role', { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((c: any): Character => ({
+    id: c.id,
+    name: c.name,
+    role: c.role,
+    description: c.description,
+    traits: c.traits ?? [],
+    backstory: c.backstory,
+  }))
+}
+
+/** Load per-character guardrails */
+export async function loadCharacterGuardrails(projectId: string): Promise<CharacterGuardrail[]> {
+  const { data, error } = await db()
+    .from('character_guardrails')
+    .select('id, character_id, project_id, rule, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: any): CharacterGuardrail => ({
+    id: r.id,
+    characterId: r.character_id,
+    projectId: r.project_id,
+    rule: r.rule,
+    createdAt: r.created_at,
+  }))
+}
+
+/** Add a per-character guardrail */
+export async function addCharacterGuardrail(
+  projectId: string,
+  characterId: string,
+  rule: string,
+): Promise<CharacterGuardrail> {
+  const { data, error } = await db()
+    .from('character_guardrails')
+    .insert({ project_id: projectId, character_id: characterId, rule })
+    .select()
+    .single()
+
+  if (error || !data) throw new Error(error?.message ?? 'Failed to add guardrail')
+  return { id: data.id, characterId: data.character_id, projectId: data.project_id, rule: data.rule, createdAt: data.created_at }
+}
+
+/** Remove a per-character guardrail */
+export async function removeCharacterGuardrail(id: string): Promise<void> {
+  const { error } = await db().from('character_guardrails').delete().eq('id', id)
+  if (error) throw new Error(error.message)
 }
 
 /** Call the generate-scene Edge Function */
@@ -114,39 +199,31 @@ export async function generateScene(
 
 /** Load full scene tree for a project */
 export async function loadScenes(projectId: string): Promise<Scene[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
+  const { data, error } = await db()
     .from('scenes')
     .select('*')
     .eq('project_id', projectId)
     .order('scene_order', { ascending: true })
 
   if (error) throw new Error(error.message)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map(rowToScene)
+  return (data ?? []).map(rowToScene)
 }
 
-/** Load choices for the most recent scene of a project */
+/** Load choices for a scene (unresolved only) */
 export async function loadChoicesForScene(sceneId: string): Promise<Choice[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
+  const { data, error } = await db()
     .from('choices')
     .select('*')
     .eq('scene_id', sceneId)
-    .is('leads_to_scene_id', null) // only unresolved choices
+    .is('leads_to_scene_id', null)
 
   if (error) throw new Error(error.message)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map(rowToChoice)
+  return (data ?? []).map(rowToChoice)
 }
 
 /** Load story state */
 export async function loadStoryState(projectId: string): Promise<StoryState | null> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
+  const { data, error } = await db()
     .from('story_state')
     .select('*')
     .eq('project_id', projectId)
@@ -161,7 +238,6 @@ export async function loadStoryState(projectId: string): Promise<StoryState | nu
 export async function exportStoryAsText(projectId: string, title: string): Promise<string> {
   const scenes = await loadScenes(projectId)
   const lines: string[] = [`# ${title}`, '', '---', '']
-
   for (const scene of scenes) {
     const indent = '  '.repeat(scene.depth)
     lines.push(`${indent}## ${scene.title}`)
@@ -170,13 +246,11 @@ export async function exportStoryAsText(projectId: string, title: string): Promi
     scene.content.split('\n').forEach(l => lines.push(`${indent}${l}`))
     lines.push('')
   }
-
   return lines.join('\n')
 }
 
-// ── Row mappers ──────────────────────────────────────────────────────────────
+// ── Row mappers ────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToScene(row: any): Scene {
   return {
     id: row.id,
@@ -192,7 +266,6 @@ function rowToScene(row: any): Scene {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToChoice(row: any): Choice {
   return {
     id: row.id,
@@ -204,7 +277,6 @@ function rowToChoice(row: any): Choice {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToStoryState(data: any): StoryState {
   return {
     id: data.id,

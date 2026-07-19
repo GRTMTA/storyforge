@@ -167,6 +167,31 @@ create policy "Users own their story state"
     )
   );
 
+-- ── character_guardrails ──────────────────────────────────────────────────────
+create table if not exists public.character_guardrails (
+  id            uuid primary key default gen_random_uuid(),
+  project_id    uuid not null references public.projects(id) on delete cascade,
+  character_id  uuid not null references public.characters(id) on delete cascade,
+  rule          text not null,
+  created_at    timestamptz not null default now()
+);
+
+alter table public.character_guardrails enable row level security;
+create policy "Users own their character guardrails"
+  on public.character_guardrails for all
+  using (
+    exists (
+      select 1 from public.projects p
+      where p.id = character_guardrails.project_id and p.user_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.projects p
+      where p.id = character_guardrails.project_id and p.user_id = auth.uid()
+    )
+  );
+
 -- ── semantic search helper ────────────────────────────────────────────────────
 -- Parameter/return types are schema-qualified for the same reason as above.
 create or replace function public.match_scenes(
