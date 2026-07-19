@@ -436,9 +436,6 @@ export function ProjectDetailPage({ project, onBack }: Props) {
     finally { setResuming(false) }
   }
 
-  const STATUS_LABEL: Record<string, string> = { setup: 'Draft', active: 'In-Progress', completed: 'Complete' }
-  const STATUS_VARIANT: Record<string, 'default' | 'gold' | 'success'> = { setup: 'default', active: 'gold', completed: 'success' }
-
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'overview',   label: 'Overview',                                                              icon: BookOpen  },
     { id: 'characters', label: `Characters${characters.length > 0 ? ` (${characters.length})` : ''}`,  icon: Users     },
@@ -464,9 +461,6 @@ export function ProjectDetailPage({ project, onBack }: Props) {
           <h1 className="text-2xl font-bold text-[#F8F6F0] truncate">{project.title}</h1>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <Badge variant={STATUS_VARIANT[project.status] ?? 'default'} className="text-sm">
-            {STATUS_LABEL[project.status] ?? project.status}
-          </Badge>
           <Button size="md" loading={resuming} onClick={handleResume}>
             Resume Story →
           </Button>

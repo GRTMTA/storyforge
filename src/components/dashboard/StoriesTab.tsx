@@ -50,18 +50,6 @@ function formatDate(iso: string) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  setup: 'Draft',
-  active: 'In-Progress',
-  completed: 'Complete',
-}
-
-const STATUS_VARIANT: Record<string, 'default' | 'gold' | 'success' | 'warning' | 'danger'> = {
-  setup: 'default',
-  active: 'gold',
-  completed: 'success',
-}
-
 interface StoryCard {
   id: string
   title: string
@@ -282,15 +270,13 @@ export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCard) => 
             return (
               <div
                 key={p.id}
-                className="group bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-2xl p-6 hover:border-[#F5A623]/50 hover:bg-[#2D2D5E]/60 transition-all flex flex-col gap-4"
+                onClick={() => onViewDetail?.(p)}
+                className="group bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-2xl p-6 hover:border-[#F5A623]/50 hover:bg-[#2D2D5E]/60 transition-all flex flex-col gap-4 cursor-pointer"
               >
                 {/* Top row */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant="gold" className="text-xs">{p.genre}</Badge>
-                    <Badge variant={STATUS_VARIANT[p.status] ?? 'default'} className="text-xs">
-                      {STATUS_LABEL[p.status] ?? p.status}
-                    </Badge>
                   </div>
                   <span className="text-xs text-[#F8F6F0]/30 flex items-center gap-1 shrink-0">
                     <Clock className="w-3 h-3" /> {formatDate(p.updated_at)}
@@ -330,17 +316,7 @@ export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCard) => 
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2 mt-auto">
-                  {onViewDetail && (
-                    <Button
-                      variant="secondary"
-                      size="md"
-                      className="text-sm"
-                      onClick={() => onViewDetail(p)}
-                    >
-                      Details
-                    </Button>
-                  )}
+                <div className="flex gap-2 mt-auto" onClick={e => e.stopPropagation()}>
                   <Button
                     variant="primary"
                     size="md"
