@@ -1,13 +1,20 @@
 -- StoryForge Database Schema
--- Run in the Supabase SQL editor (or as a migration)
+-- Run via: supabase db push
+-- Or paste into Supabase SQL Editor
 
--- Enable required extensions
-create extension if not exists "pgvector";
-create extension if not exists "uuid-ossp";
+-- ── Extensions ────────────────────────────────────────────────────────────────
+-- "vector" (pgvector) must be enabled first in the Supabase Dashboard:
+--   Database → Extensions → search "vector" → Enable
+-- Once enabled it lives in the `extensions` schema and is available globally.
+-- The line below is a no-op if already enabled; it will NOT fail.
+create extension if not exists "vector" with schema extensions;
 
--- ── projects ─────────────────────────────────────────────────────────────────
+-- uuid-ossp is pre-installed on Supabase; gen_random_uuid() (pgcrypto) is also
+-- available without any extension, so we use that instead of uuid_generate_v4().
+
+-- ── projects ──────────────────────────────────────────────────────────────────
 create table if not exists public.projects (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   title       text not null,
   genre       text not null default 'Fantasy',
@@ -22,15 +29,16 @@ create table if not exists public.projects (
 alter table public.projects enable row level security;
 create policy "Users own their projects"
   on public.projects for all
-  using (auth.uid() = user_id)
+  using  (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
 -- ── characters ────────────────────────────────────────────────────────────────
 create table if not exists public.characters (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   project_id    uuid not null references public.projects(id) on delete cascade,
   name          text not null,
-  role          text not null default 'supporting' check (role in ('protagonist','antagonist','supporting')),
+  role          text not null default 'supporting'
+                  check (role in ('protagonist','antagonist','supporting')),
   description   text not null default '',
   traits        text[] not null default '{}',
   backstory     text not null default '',
@@ -56,7 +64,7 @@ create policy "Users own their characters"
 
 -- ── scenes ────────────────────────────────────────────────────────────────────
 create table if not exists public.scenes (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   project_id      uuid not null references public.projects(id) on delete cascade,
   parent_scene_id uuid references public.scenes(id) on delete set null,
   title           text not null,
@@ -66,12 +74,29 @@ create table if not exists public.scenes (
   depth           int not null default 0,
   is_ending       boolean not null default false,
   metadata        jsonb not null default '{}',
-  embedding       vector(1536),
+  -- vector column: only populated once pgvector extension is enabled
+  embedding       extensions.vector(1536),
   created_at      timestamptz not null default now()
 );
 
-create index if not exists scenes_project_id_idx on public.scenes(project_id);
-create index if not exists scenes_embedding_idx on public.scenes using ivfflat (embedding vector_cosine_ops);
+create index if not exists scenes_project_id_idx
+  on public.scenes(project_id);
+
+-- ivfflat index for fast approximate nearest-neighbour search
+-- Only created if the vector extension is present
+do $$
+begin
+  if exists (
+    select 1 from pg_extension where extname = 'vector'
+  ) then
+    execute $idx$
+      create index if not exists scenes_embedding_idx
+        on public.scenes
+        using ivfflat (embedding extensions.vector_cosine_ops)
+        with (lists = 100)
+    $idx$;
+  end if;
+end $$;
 
 alter table public.scenes enable row level security;
 create policy "Users own their scenes"
@@ -91,7 +116,7 @@ create policy "Users own their scenes"
 
 -- ── choices ───────────────────────────────────────────────────────────────────
 create table if not exists public.choices (
-  id                  uuid primary key default uuid_generate_v4(),
+  id                  uuid primary key default gen_random_uuid(),
   scene_id            uuid not null references public.scenes(id) on delete cascade,
   label               text not null,
   description         text not null default '',
@@ -120,7 +145,7 @@ create policy "Users own their choices"
 
 -- ── story_state ───────────────────────────────────────────────────────────────
 create table if not exists public.story_state (
-  id                uuid primary key default uuid_generate_v4(),
+  id                uuid primary key default gen_random_uuid(),
   project_id        uuid not null unique references public.projects(id) on delete cascade,
   current_scene_id  uuid not null references public.scenes(id) on delete restrict,
   plot_threads      jsonb not null default '{}',
@@ -147,8 +172,10 @@ create policy "Users own their story state"
   );
 
 -- ── semantic search helper ────────────────────────────────────────────────────
+-- Uses <=> operator from pgvector. Safe to create even before the vector index
+-- is built; Postgres will use a sequential scan until the ivfflat index exists.
 create or replace function public.match_scenes(
-  query_embedding  vector(1536),
+  query_embedding  extensions.vector(1536),
   project_id       uuid,
   match_threshold  float default 0.7,
   match_count      int   default 5
