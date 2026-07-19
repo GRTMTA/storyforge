@@ -6,17 +6,18 @@ import { supabase } from '@/lib/supabase'
 import type { ProjectSetup, Character } from '@/types/story'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import {
   Plus, Trash2, BookOpen, User, Shield, Wand2,
   Pencil, Check, X, Sparkles, ImageIcon, AlertTriangle,
+  Search, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PRESET_GENRES = ['Fantasy', 'Sci-Fi', 'Mystery', 'Horror', 'Romance', 'Thriller', 'Historical', 'Adventure']
 const PRESET_TONES  = ['Epic', 'Dark', 'Whimsical', 'Gritty', 'Hopeful', 'Mysterious', 'Comedic', 'Tense']
+const PAGE_SIZE = 10
 
 const SUGGESTED_STORY_GUARDRAILS = [
   'Keep the story focused on the main narrative arc',
@@ -27,6 +28,10 @@ const SUGGESTED_STORY_GUARDRAILS = [
   'Supporting characters should have meaningful roles',
   'Foreshadowing should be subtle, not on-the-nose',
   'Magic/technology rules must remain internally consistent',
+  'No sudden character deaths without narrative setup',
+  'Dialogue must match each character\'s established voice',
+  'All introduced mysteries must have resolvable answers',
+  'The story\'s tone must remain consistent throughout',
 ]
 
 const SUGGESTED_CHAR_GUARDRAILS = (name: string) => [
@@ -43,7 +48,7 @@ const ROLE_TRAIT_SUGGESTIONS: Record<string, string[]> = {
   supporting:  ['Loyal', 'Witty', 'Cautious', 'Knowledgeable', 'Sarcastic', 'Gentle', 'Reliable', 'Observant'],
 }
 
-// ── AI helpers (call Edge Functions via Supabase) ─────────────────────────────
+// ── AI helpers ────────────────────────────────────────────────────────────────
 
 async function aiPolish(text: string, context: 'setting' | 'character_description' | 'guardrail'): Promise<string> {
   const { data, error } = await supabase.functions.invoke('ai-polish', { body: { text, context } })
@@ -59,11 +64,39 @@ async function suggestTraits(characterName: string, role: string, existing: stri
   return (data?.suggestions as string[]) ?? ROLE_TRAIT_SUGGESTIONS[role] ?? []
 }
 
+// ── Pagination helper ─────────────────────────────────────────────────────────
+
+function Pagination({ total, page, onPage }: { total: number; page: number; onPage: (p: number) => void }) {
+  const pages = Math.ceil(total / PAGE_SIZE)
+  if (pages <= 1) return null
+  return (
+    <div className="flex items-center gap-2 mt-3">
+      <button
+        disabled={page === 0}
+        onClick={() => onPage(page - 1)}
+        className="p-1 rounded text-[#F8F6F0]/40 hover:text-[#F8F6F0] disabled:opacity-20 cursor-pointer"
+      >
+        <ChevronLeft className="w-4 h-4" />
+      </button>
+      <span className="text-xs text-[#F8F6F0]/40">
+        {page + 1} / {pages}
+      </span>
+      <button
+        disabled={page >= pages - 1}
+        onClick={() => onPage(page + 1)}
+        className="p-1 rounded text-[#F8F6F0]/40 hover:text-[#F8F6F0] disabled:opacity-20 cursor-pointer"
+      >
+        <ChevronRight className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 // ── Polish confirm modal ──────────────────────────────────────────────────────
 
-function PolishModal({
-  original, polished, onAccept, onReject,
-}: { original: string; polished: string; onAccept: () => void; onReject: () => void }) {
+function PolishModal({ original, polished, onAccept, onReject }: {
+  original: string; polished: string; onAccept: () => void; onReject: () => void
+}) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onReject}>
       <div className="w-full max-w-lg bg-[#1A1A3E] border border-[#3D3D7A] rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -103,10 +136,8 @@ function PolishButton({ text, context, onApply }: {
   const handlePolish = async () => {
     if (!text.trim() || polishing) return
     setPolishing(true)
-    try {
-      const result = await aiPolish(text, context)
-      setPreview(result)
-    } catch { /* silent */ }
+    try { setPreview(await aiPolish(text, context)) }
+    catch { /* silent */ }
     finally { setPolishing(false) }
   }
 
@@ -137,12 +168,10 @@ function PolishButton({ text, context, onApply }: {
   )
 }
 
-// ── Portrait placeholder ──────────────────────────────────────────────────────
+// ── Portrait picker ───────────────────────────────────────────────────────────
 
 function PortraitPicker({ name, portraitUrl, onChange }: {
-  name: string
-  portraitUrl?: string
-  onChange: (url: string | undefined) => void
+  name: string; portraitUrl?: string; onChange: (url: string | undefined) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const initials = name.trim() ? name.trim().charAt(0).toUpperCase() : '?'
@@ -160,7 +189,6 @@ function PortraitPicker({ name, portraitUrl, onChange }: {
       <div
         className="w-16 h-16 rounded-xl border-2 border-dashed border-[#3D3D7A] flex items-center justify-center cursor-pointer hover:border-[#F5A623]/60 transition-colors relative overflow-hidden shrink-0"
         onClick={() => inputRef.current?.click()}
-        title="Click to upload portrait"
       >
         {portraitUrl ? (
           <img src={portraitUrl} alt={name} className="w-full h-full object-cover" />
@@ -174,21 +202,13 @@ function PortraitPicker({ name, portraitUrl, onChange }: {
       <div className="flex flex-col gap-1">
         <p className="text-xs text-[#F8F6F0]/50">Portrait <span className="text-[#F8F6F0]/30">(optional)</span></p>
         <div className="flex gap-1.5">
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
+          <button type="button" onClick={() => inputRef.current?.click()}
             className="text-xs px-2 py-1 bg-[#2D2D5E]/60 border border-[#3D3D7A] rounded-lg text-[#F8F6F0]/60 hover:text-[#F8F6F0] hover:border-[#F5A623]/40 cursor-pointer transition-colors"
-          >
-            Upload
-          </button>
+          >Upload</button>
           {portraitUrl && (
-            <button
-              type="button"
-              onClick={() => onChange(undefined)}
+            <button type="button" onClick={() => onChange(undefined)}
               className="text-xs px-2 py-1 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400/60 hover:text-red-400 cursor-pointer transition-colors"
-            >
-              Remove
-            </button>
+            >Remove</button>
           )}
         </div>
       </div>
@@ -197,7 +217,7 @@ function PortraitPicker({ name, portraitUrl, onChange }: {
   )
 }
 
-// ── Character form ────────────────────────────────────────────────────────────
+// ── Character form (left panel) ───────────────────────────────────────────────
 
 interface CharFormProps {
   initial: Character
@@ -243,48 +263,38 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
     update({ charGuardrails: (char.charGuardrails ?? []).filter(r => r !== rule) })
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Portrait + name + role row */}
-      <div className="flex items-start gap-4">
-        <PortraitPicker
-          name={char.name}
-          portraitUrl={char.portraitUrl}
-          onChange={url => update({ portraitUrl: url })}
-        />
-        <div className="flex-1 flex flex-col gap-3">
-          <Input
-            label="Name"
-            placeholder="Lyra Shadowmend"
-            value={char.name}
-            onChange={e => update({ name: e.target.value })}
-          />
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-[#F8F6F0]/80">Role</label>
-            <select
-              value={char.role}
-              onChange={e => update({ role: e.target.value as Character['role'] })}
-              className="w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
-            >
-              <option value="protagonist">Protagonist</option>
-              <option value="antagonist">Antagonist</option>
-              <option value="supporting">Supporting</option>
-            </select>
-          </div>
-        </div>
+    <div className="flex flex-col gap-4 h-full overflow-y-auto pr-1">
+      {/* Portrait + name + role */}
+      <PortraitPicker name={char.name} portraitUrl={char.portraitUrl} onChange={url => update({ portraitUrl: url })} />
+
+      <Input
+        label="Name"
+        placeholder="Lyra Shadowmend"
+        value={char.name}
+        onChange={e => update({ name: e.target.value })}
+      />
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium text-[#F8F6F0]/80">Role</label>
+        <select
+          value={char.role}
+          onChange={e => update({ role: e.target.value as Character['role'] })}
+          className="w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
+        >
+          <option value="protagonist">Protagonist</option>
+          <option value="antagonist">Antagonist</option>
+          <option value="supporting">Supporting</option>
+        </select>
       </div>
 
-      {/* Description with polish */}
+      {/* Description */}
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium text-[#F8F6F0]/80">Description</label>
-          <PolishButton
-            text={char.description}
-            context="character_description"
-            onApply={polished => update({ description: polished })}
-          />
+          <PolishButton text={char.description} context="character_description" onApply={polished => update({ description: polished })} />
         </div>
         <textarea
-          className="w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 transition-colors text-sm"
+          className="w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
           placeholder="A rogue scholar with silver eyes and a hidden agenda..."
           rows={2}
           value={char.description}
@@ -292,39 +302,27 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
         />
       </div>
 
-      {/* Traits with AI suggestions */}
+      {/* Traits */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <label className="text-sm font-medium text-[#F8F6F0]/80">Traits</label>
-          <button
-            type="button"
-            onClick={loadSuggestions}
-            disabled={loadingSuggestions}
+          <button type="button" onClick={loadSuggestions} disabled={loadingSuggestions}
             className="flex items-center gap-1 text-xs text-[#F5A623]/70 hover:text-[#F5A623] transition-colors cursor-pointer disabled:opacity-40"
           >
             <Sparkles className={`w-3 h-3 ${loadingSuggestions ? 'animate-spin' : ''}`} />
             {loadingSuggestions ? 'Thinking…' : 'Suggest'}
           </button>
         </div>
-
-        {/* Suggestions chips */}
         {traitSuggestions.length > 0 && (
           <div className="flex flex-wrap gap-1.5 p-2 bg-[#F5A623]/5 border border-[#F5A623]/20 rounded-lg">
             <p className="w-full text-[10px] text-[#F5A623]/60 mb-0.5">Click to add:</p>
             {traitSuggestions.map(s => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => addTrait(s)}
+              <button key={s} type="button" onClick={() => addTrait(s)}
                 className="px-2 py-0.5 rounded-full text-xs bg-[#F5A623]/10 text-[#F5A623]/80 border border-[#F5A623]/20 hover:bg-[#F5A623]/20 cursor-pointer transition-colors"
-              >
-                + {s}
-              </button>
+              >+ {s}</button>
             ))}
           </div>
         )}
-
-        {/* Trait input */}
         <div className="flex gap-2">
           <input
             className="flex-1 px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
@@ -333,37 +331,24 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
             onChange={e => setTraitInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addTrait(traitInput))}
           />
-          <Button size="sm" variant="secondary" onClick={() => addTrait(traitInput)}>
-            <Plus className="w-3 h-3" />
-          </Button>
+          <Button size="sm" variant="secondary" onClick={() => addTrait(traitInput)}><Plus className="w-3 h-3" /></Button>
         </div>
-
-        {/* Added traits */}
         {char.traits.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {char.traits.map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => removeTrait(t)}
+              <button key={t} type="button" onClick={() => removeTrait(t)}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-[#F5A623]/15 text-[#F5A623] border border-[#F5A623]/30 hover:bg-red-500/15 hover:text-red-400 hover:border-red-400/30 transition-colors cursor-pointer"
-              >
-                {t} ×
-              </button>
+              >{t} ×</button>
             ))}
           </div>
         )}
       </div>
 
-      {/* Character Guardrails */}
+      {/* Char guardrails */}
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium text-[#F8F6F0]/80 flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5 text-[#F5A623]" />
-          Character Guardrails
-          <span className="text-xs font-normal text-[#F8F6F0]/40">(optional)</span>
+          <Shield className="w-3.5 h-3.5 text-[#F5A623]" /> Character Guardrails <span className="text-xs font-normal text-[#F8F6F0]/40">(optional)</span>
         </label>
-
-        {/* Preset suggestions */}
         {char.name && (
           <div className="flex flex-col gap-1 p-2 bg-[#2D2D5E]/30 border border-[#3D3D7A] rounded-lg">
             <p className="text-[10px] text-[#F8F6F0]/40 mb-0.5">Quick add:</p>
@@ -372,19 +357,13 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
                 .filter(s => !(char.charGuardrails ?? []).includes(s))
                 .slice(0, 3)
                 .map(s => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => addCharGuardrail(s)}
+                  <button key={s} type="button" onClick={() => addCharGuardrail(s)}
                     className="text-[10px] px-2 py-0.5 rounded-full bg-[#3D3D7A]/60 text-[#F8F6F0]/60 border border-[#3D3D7A] hover:bg-[#F5A623]/10 hover:text-[#F5A623]/80 hover:border-[#F5A623]/30 cursor-pointer transition-colors"
-                  >
-                    + {s.length > 50 ? s.slice(0, 50) + '…' : s}
-                  </button>
+                  >+ {s.length > 45 ? s.slice(0, 45) + '…' : s}</button>
                 ))}
             </div>
           </div>
         )}
-
         {(char.charGuardrails ?? []).map(rule => (
           <div key={rule} className="flex items-center gap-2 px-3 py-2 bg-[#1A1A3E]/60 border border-[#3D3D7A] rounded-lg">
             <AlertTriangle className="w-3 h-3 text-[#F5A623] shrink-0" />
@@ -394,7 +373,6 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
             </button>
           </div>
         ))}
-
         <div className="flex gap-2">
           <input
             className="flex-1 px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
@@ -403,19 +381,14 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
             onChange={e => setCharGuardrailInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCharGuardrail(charGuardrailInput))}
           />
-          <Button size="sm" variant="secondary" onClick={() => addCharGuardrail(charGuardrailInput)}>
-            <Plus className="w-3 h-3" />
-          </Button>
+          <Button size="sm" variant="secondary" onClick={() => addCharGuardrail(charGuardrailInput)}><Plus className="w-3 h-3" /></Button>
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2 pt-1 sticky bottom-0 bg-[#1A1A3E] py-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-        <Button
-          size="sm"
-          className="flex-1"
-          disabled={!char.name.trim()}
+        <Button size="sm" className="flex-1" disabled={!char.name.trim()}
           onClick={() => onSave({ ...char, id: char.id ?? crypto.randomUUID() })}
         >
           <Check className="w-3.5 h-3.5" />
@@ -426,24 +399,238 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
   )
 }
 
-// ── Main SetupStep ────────────────────────────────────────────────────────────
+const emptyChar = (): Character => ({ name: '', role: 'supporting', description: '', traits: [], charGuardrails: [] })
 
-const emptyChar = (): Character => ({
-  name: '',
-  role: 'supporting',
-  description: '',
-  traits: [],
-  charGuardrails: [],
-})
+// ── Characters panel (two-panel layout) ──────────────────────────────────────
+
+function CharactersPanel({ setup, updateSetup }: { setup: ProjectSetup; updateSetup: (p: Partial<ProjectSetup>) => void }) {
+  const [showForm, setShowForm]   = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [search, setSearch]       = useState('')
+  const [page, setPage]           = useState(0)
+
+  const saveChar = (c: Character) => {
+    if (editingId) {
+      updateSetup({ characters: setup.characters.map(x => x.id === editingId ? c : x) })
+    } else {
+      updateSetup({ characters: [...setup.characters, c] })
+    }
+    setShowForm(false)
+    setEditingId(null)
+  }
+
+  const startEdit = (id: string) => { setEditingId(id); setShowForm(true) }
+  const removeChar = (id: string | undefined) => updateSetup({ characters: setup.characters.filter(c => c.id !== id) })
+
+  const filtered = setup.characters.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.role.toLowerCase().includes(search.toLowerCase())
+  )
+  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  return (
+    <div className="flex gap-0 h-full">
+      {/* Left — form */}
+      <div className="w-[45%] border-r border-[#3D3D7A] pr-5 overflow-y-auto">
+        <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-4">
+          {showForm ? (editingId ? 'Edit Character' : 'New Character') : 'Character Details'}
+        </p>
+        {showForm ? (
+          <CharacterForm
+            initial={editingId ? setup.characters.find(c => c.id === editingId)! : emptyChar()}
+            onSave={saveChar}
+            onCancel={() => { setShowForm(false); setEditingId(null) }}
+            isEdit={!!editingId}
+          />
+        ) : (
+          <button
+            onClick={() => setShowForm(true)}
+            className="w-full flex items-center justify-center gap-2 py-4 border-2 border-dashed border-[#3D3D7A] rounded-xl text-[#F8F6F0]/40 hover:border-[#F5A623]/40 hover:text-[#F5A623]/60 transition-colors cursor-pointer text-sm"
+          >
+            <Plus className="w-4 h-4" /> Add Character
+          </button>
+        )}
+      </div>
+
+      {/* Right — list */}
+      <div className="flex-1 pl-5 flex flex-col">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-lg">
+            <Search className="w-3.5 h-3.5 text-[#F8F6F0]/30 shrink-0" />
+            <input
+              className="flex-1 bg-transparent text-sm text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none"
+              placeholder="Search characters…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(0) }}
+            />
+          </div>
+          <span className="text-xs text-[#F8F6F0]/30 shrink-0">{setup.characters.length} total</span>
+        </div>
+
+        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+          {paged.length === 0 && (
+            <p className="text-sm text-[#F8F6F0]/25 text-center py-8">
+              {setup.characters.length === 0 ? 'No characters yet.' : 'No results.'}
+            </p>
+          )}
+          {paged.map(char => (
+            <div key={char.id} className="flex items-center gap-3 p-3 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl">
+              <div className="w-9 h-9 rounded-lg overflow-hidden border border-[#3D3D7A] shrink-0 flex items-center justify-center bg-[#F5A623]/10">
+                {char.portraitUrl
+                  ? <img src={char.portraitUrl} alt={char.name} className="w-full h-full object-cover" />
+                  : <span className="text-sm font-bold text-[#F5A623]/60">{char.name.charAt(0).toUpperCase()}</span>
+                }
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-[#F8F6F0] text-sm truncate">{char.name}</p>
+                <p className="text-xs text-[#F8F6F0]/40 truncate">{char.description || '—'}</p>
+              </div>
+              <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-xs shrink-0">
+                {char.role}
+              </Badge>
+              <button onClick={() => startEdit(char.id!)} className="text-[#F8F6F0]/30 hover:text-[#F5A623] transition-colors cursor-pointer shrink-0">
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => removeChar(char.id)} className="text-[#F8F6F0]/30 hover:text-red-400 transition-colors cursor-pointer shrink-0">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Pagination total={filtered.length} page={page} onPage={setPage} />
+      </div>
+    </div>
+  )
+}
+
+// ── Guardrails panel (two-panel layout) ───────────────────────────────────────
+
+function GuardrailsPanel({ setup, updateSetup }: { setup: ProjectSetup; updateSetup: (p: Partial<ProjectSetup>) => void }) {
+  const [customGuardrail, setCustomGuardrail] = useState('')
+  const [searchSugg, setSearchSugg]           = useState('')
+  const [searchChosen, setSearchChosen]        = useState('')
+  const [suggPage, setSuggPage]               = useState(0)
+  const [chosenPage, setChosenPage]            = useState(0)
+
+  const addGuardrail = (rule: string) => {
+    const trimmed = rule.trim()
+    if (!trimmed || setup.guardrails.includes(trimmed)) return
+    updateSetup({ guardrails: [...setup.guardrails, trimmed] })
+    setCustomGuardrail('')
+  }
+
+  const removeGuardrail = (g: string) =>
+    updateSetup({ guardrails: setup.guardrails.filter(x => x !== g) })
+
+  const availableSuggestions = SUGGESTED_STORY_GUARDRAILS.filter(
+    s => !setup.guardrails.includes(s) && s.toLowerCase().includes(searchSugg.toLowerCase())
+  )
+  const chosenFiltered = setup.guardrails.filter(g =>
+    g.toLowerCase().includes(searchChosen.toLowerCase())
+  )
+
+  const pagedSugg   = availableSuggestions.slice(suggPage * PAGE_SIZE,  (suggPage + 1) * PAGE_SIZE)
+  const pagedChosen = chosenFiltered.slice(chosenPage * PAGE_SIZE, (chosenPage + 1) * PAGE_SIZE)
+
+  return (
+    <div className="flex gap-0 h-full">
+      {/* Left — suggestions */}
+      <div className="w-[50%] border-r border-[#3D3D7A] pr-5 flex flex-col gap-3">
+        <div>
+          <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-3">Suggested Rules</p>
+          <div className="flex items-center gap-2 px-3 py-2 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-lg mb-3">
+            <Search className="w-3.5 h-3.5 text-[#F8F6F0]/30 shrink-0" />
+            <input
+              className="flex-1 bg-transparent text-sm text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none"
+              placeholder="Search suggestions…"
+              value={searchSugg}
+              onChange={e => { setSearchSugg(e.target.value); setSuggPage(0) }}
+            />
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+          {pagedSugg.length === 0 && (
+            <p className="text-xs text-[#F8F6F0]/25 text-center py-4">
+              {availableSuggestions.length === 0 ? 'All suggestions added ✓' : 'No results.'}
+            </p>
+          )}
+          {pagedSugg.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => addGuardrail(s)}
+              className="text-left text-xs px-3 py-2.5 bg-[#1A1A3E]/60 border border-[#3D3D7A] rounded-lg text-[#F8F6F0]/60 hover:border-[#F5A623]/40 hover:text-[#F8F6F0]/90 cursor-pointer transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-3 h-3 text-[#F5A623]/50 shrink-0" /> {s}
+            </button>
+          ))}
+        </div>
+        <Pagination total={availableSuggestions.length} page={suggPage} onPage={setSuggPage} />
+
+        {/* Custom input */}
+        <div className="border-t border-[#3D3D7A] pt-3 flex flex-col gap-2">
+          <p className="text-xs text-[#F8F6F0]/40 font-medium">Custom rule</p>
+          <div className="flex gap-2 items-center">
+            <input
+              className="flex-1 px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
+              placeholder="e.g. The story must stay grounded…"
+              value={customGuardrail}
+              onChange={e => setCustomGuardrail(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addGuardrail(customGuardrail))}
+            />
+            <PolishButton text={customGuardrail} context="guardrail" onApply={polished => setCustomGuardrail(polished)} />
+            <Button size="sm" variant="secondary" onClick={() => addGuardrail(customGuardrail)}><Plus className="w-3 h-3" /></Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Right — chosen */}
+      <div className="flex-1 pl-5 flex flex-col gap-3">
+        <div>
+          <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-3">
+            Active Rules <span className="text-[#F5A623]/60 ml-1">({setup.guardrails.length})</span>
+          </p>
+          <div className="flex items-center gap-2 px-3 py-2 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-lg mb-3">
+            <Search className="w-3.5 h-3.5 text-[#F8F6F0]/30 shrink-0" />
+            <input
+              className="flex-1 bg-transparent text-sm text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none"
+              placeholder="Search active rules…"
+              value={searchChosen}
+              onChange={e => { setSearchChosen(e.target.value); setChosenPage(0) }}
+            />
+          </div>
+        </div>
+        <div className="flex flex-col gap-2 flex-1 overflow-y-auto">
+          {pagedChosen.length === 0 && (
+            <p className="text-xs text-[#F8F6F0]/25 text-center py-4">
+              {setup.guardrails.length === 0 ? 'No guardrails added yet.' : 'No results.'}
+            </p>
+          )}
+          {pagedChosen.map(g => (
+            <div key={g} className="flex items-center gap-2 p-2.5 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-lg">
+              <Shield className="w-3.5 h-3.5 text-[#F5A623] shrink-0" />
+              <span className="flex-1 text-sm text-[#F8F6F0]/80">{g}</span>
+              <button onClick={() => removeGuardrail(g)} className="text-[#F8F6F0]/30 hover:text-red-400 transition-colors cursor-pointer shrink-0">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Pagination total={chosenFiltered.length} page={chosenPage} onPage={setChosenPage} />
+      </div>
+    </div>
+  )
+}
+
+// ── Main SetupStep ────────────────────────────────────────────────────────────
 
 export function SetupStep() {
   const { user } = useAuth()
   const { dispatch } = useStory()
   const [activePanel, setActivePanel] = useState<'project' | 'characters' | 'guardrails'>('project')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError]     = useState<string | null>(null)
 
-  // Project state
   const [setup, setSetup] = useState<ProjectSetup>({
     title: '',
     genre: 'Fantasy',
@@ -457,45 +644,10 @@ export function SetupStep() {
   const [isCustomGenre, setIsCustomGenre] = useState(false)
   const [isCustomTone,  setIsCustomTone]  = useState(false)
 
-  // Guardrails
-  const [customGuardrail, setCustomGuardrail] = useState('')
-
-  // Characters
-  const [showCharForm, setShowCharForm] = useState(false)
-  const [editingId,    setEditingId]    = useState<string | null>(null)
-
   const updateSetup = (patch: Partial<ProjectSetup>) => setSetup(s => ({ ...s, ...patch }))
-
-  // ── Genre/Tone helpers ─────────────────────────────────────────────────────
   const effectiveGenre = isCustomGenre ? customGenre : setup.genre
   const effectiveTone  = isCustomTone  ? customTone  : setup.tone
 
-  // ── Guardrails ─────────────────────────────────────────────────────────────
-  const addGuardrail = (rule: string) => {
-    const trimmed = rule.trim()
-    if (!trimmed || setup.guardrails.includes(trimmed)) return
-    updateSetup({ guardrails: [...setup.guardrails, trimmed] })
-    setCustomGuardrail('')
-  }
-  const removeGuardrail = (g: string) =>
-    updateSetup({ guardrails: setup.guardrails.filter(x => x !== g) })
-
-  // ── Characters ─────────────────────────────────────────────────────────────
-  const saveChar = (c: Character) => {
-    if (editingId) {
-      updateSetup({ characters: setup.characters.map(x => x.id === editingId ? c : x) })
-    } else {
-      updateSetup({ characters: [...setup.characters, c] })
-    }
-    setShowCharForm(false)
-    setEditingId(null)
-  }
-
-  const startEdit = (id: string) => { setEditingId(id); setShowCharForm(true) }
-  const removeChar = (id: string | undefined) =>
-    updateSetup({ characters: setup.characters.filter(c => c.id !== id) })
-
-  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleLaunch = async () => {
     const finalSetup: ProjectSetup = {
       ...setup,
@@ -503,7 +655,7 @@ export function SetupStep() {
       tone:  effectiveTone  || setup.tone,
     }
     if (!finalSetup.title.trim() || !finalSetup.setting.trim()) {
-      setError('Title and setting are required.')
+      setError('Title and synopsis are required.')
       return
     }
     if (finalSetup.characters.length === 0) {
@@ -511,15 +663,12 @@ export function SetupStep() {
       return
     }
     if (!user) return
-
     setLoading(true)
     setError(null)
     dispatch({ type: 'SET_GENERATING', payload: true })
-
     try {
       const projectId = await createProject(finalSetup, user.id)
       dispatch({ type: 'SET_PROJECT', payload: { projectId, setup: finalSetup } })
-
       const result = await generateScene(projectId, finalSetup)
       dispatch({ type: 'ADD_SCENE', payload: { scene: result.scene, choices: result.choices } })
       if (result.stateUpdates) dispatch({ type: 'SET_STORY_STATE', payload: result.stateUpdates as never })
@@ -534,53 +683,38 @@ export function SetupStep() {
 
   const panels = [
     { id: 'project'    as const, label: 'Project',    icon: BookOpen },
-    { id: 'characters' as const, label: 'Characters', icon: User },
-    { id: 'guardrails' as const, label: 'Guardrails', icon: Shield },
+    { id: 'characters' as const, label: 'Characters', icon: User    },
+    { id: 'guardrails' as const, label: 'Guardrails', icon: Shield  },
   ]
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div
-        className="w-[75vw] h-[75vh] min-w-[320px] min-h-[480px] bg-[#1A1A3E] border border-[#3D3D7A] rounded-2xl flex flex-col shadow-2xl overflow-hidden"
+        className="w-[75vw] h-[75vh] min-w-[640px] min-h-[480px] bg-[#1A1A3E] border border-[#3D3D7A] rounded-2xl flex flex-col shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-      {/* Modal close / back to dashboard */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#3D3D7A] shrink-0">
-        <div className="flex items-center gap-2">
-          <Wand2 className="w-5 h-5 text-[#F5A623]" />
-          <h2 className="text-lg font-bold text-[#F8F6F0]">New Story</h2>
-        </div>
-        <button
-          onClick={() => dispatch({ type: 'RESET' })}
-          className="p-1.5 rounded-lg text-[#F8F6F0]/40 hover:text-[#F8F6F0] hover:bg-[#2D2D5E] transition-colors cursor-pointer"
-          title="Cancel"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-      <div className="max-w-2xl mx-auto">
-
-        {/* Header (replaced by modal header above) */}
-        {false && (
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-3">
-            <Wand2 className="w-6 h-6 text-[#F5A623]" />
-            <h1 className="text-3xl font-bold text-[#F8F6F0]">New Story</h1>
+        {/* Modal header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#3D3D7A] shrink-0">
+          <div className="flex items-center gap-2">
+            <Wand2 className="w-5 h-5 text-[#F5A623]" />
+            <h2 className="text-lg font-bold text-[#F8F6F0]">New Story</h2>
           </div>
-          <p className="text-[#F8F6F0]/50 text-sm">Set up your narrative world before the AI begins</p>
+          <button
+            onClick={() => dispatch({ type: 'RESET' })}
+            className="p-1.5 rounded-lg text-[#F8F6F0]/40 hover:text-[#F8F6F0] hover:bg-[#2D2D5E] transition-colors cursor-pointer"
+            title="Cancel"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-
-        )}
 
         {/* Tab bar */}
-        <div className="flex gap-1 p-1 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl mb-6">
+        <div className="flex gap-1 px-6 py-3 border-b border-[#3D3D7A] shrink-0 bg-[#12122A]/40">
           {panels.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActivePanel(id)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
                 activePanel === id
                   ? 'bg-[#F5A623] text-[#1A1A3E]'
                   : 'text-[#F8F6F0]/60 hover:text-[#F8F6F0] hover:bg-[#3D3D7A]/40'
@@ -588,15 +722,26 @@ export function SetupStep() {
             >
               <Icon className="w-4 h-4" />
               {label}
+              {id === 'characters' && setup.characters.length > 0 && (
+                <span className={`ml-0.5 text-xs px-1.5 py-0.5 rounded-full ${activePanel === id ? 'bg-[#1A1A3E]/20' : 'bg-[#3D3D7A]/60'}`}>
+                  {setup.characters.length}
+                </span>
+              )}
+              {id === 'guardrails' && setup.guardrails.length > 0 && (
+                <span className={`ml-0.5 text-xs px-1.5 py-0.5 rounded-full ${activePanel === id ? 'bg-[#1A1A3E]/20' : 'bg-[#3D3D7A]/60'}`}>
+                  {setup.guardrails.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
-        {/* ── PROJECT panel ──────────────────────────────────────────────────── */}
-        {activePanel === 'project' && (
-          <Card>
-            <CardHeader><CardTitle>Story Overview</CardTitle></CardHeader>
-            <CardContent className="flex flex-col gap-5">
+        {/* Panel content — no inner container, fields go directly */}
+        <div className="flex-1 overflow-hidden px-6 py-6">
+
+          {/* ── PROJECT panel ────────────────────────────────────────────────── */}
+          {activePanel === 'project' && (
+            <div className="flex flex-col gap-5 h-full overflow-y-auto">
               <Input
                 label="Story Title"
                 placeholder="The Shattered Realm…"
@@ -604,25 +749,21 @@ export function SetupStep() {
                 onChange={e => updateSetup({ title: e.target.value })}
               />
 
-              {/* Setting with polish */}
+              {/* Synopsis (was "Setting") */}
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-[#F8F6F0]/80">Setting</label>
-                  <PolishButton
-                    text={setup.setting}
-                    context="setting"
-                    onApply={polished => updateSetup({ setting: polished })}
-                  />
+                  <label className="text-sm font-medium text-[#F8F6F0]/80">Synopsis</label>
+                  <PolishButton text={setup.setting} context="setting" onApply={polished => updateSetup({ setting: polished })} />
                 </div>
                 <textarea
-                  className="w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 transition-colors text-sm"
+                  className="w-full px-3 py-2 rounded-lg bg-[#2D2D5E]/40 border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 transition-colors text-sm"
                   placeholder="A crumbling empire at the edge of an interdimensional rift…"
-                  rows={3}
+                  rows={4}
                   value={setup.setting}
                   onChange={e => updateSetup({ setting: e.target.value })}
                 />
                 <p className="text-xs text-[#F8F6F0]/30 flex items-center gap-1">
-                  <Wand2 className="w-3 h-3" /> Click the wand to polish your writing with AI
+                  <Wand2 className="w-3 h-3" /> Click the wand icon to polish with AI
                 </p>
               </div>
 
@@ -631,34 +772,23 @@ export function SetupStep() {
                 <label className="text-sm font-medium text-[#F8F6F0]/80">Genre</label>
                 <div className="flex flex-wrap gap-2">
                   {PRESET_GENRES.map(g => (
-                    <button
-                      key={g}
-                      type="button"
+                    <button key={g} type="button"
                       onClick={() => { setIsCustomGenre(false); updateSetup({ genre: g }) }}
                       className={`px-3 py-1.5 rounded-lg text-sm border transition-colors cursor-pointer ${
                         !isCustomGenre && setup.genre === g
                           ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] font-semibold'
                           : 'bg-[#1A1A3E] text-[#F8F6F0]/60 border-[#3D3D7A] hover:border-[#F5A623]/40 hover:text-[#F8F6F0]'
                       }`}
-                    >
-                      {g}
-                    </button>
+                    >{g}</button>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomGenre(true)}
+                  <button type="button" onClick={() => setIsCustomGenre(true)}
                     className={`px-3 py-1.5 rounded-lg text-sm border transition-colors cursor-pointer ${
-                      isCustomGenre
-                        ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] font-semibold'
-                        : 'bg-[#1A1A3E] text-[#F8F6F0]/60 border-[#3D3D7A] hover:border-[#F5A623]/40 hover:text-[#F8F6F0]'
+                      isCustomGenre ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] font-semibold' : 'bg-[#1A1A3E] text-[#F8F6F0]/60 border-[#3D3D7A] hover:border-[#F5A623]/40 hover:text-[#F8F6F0]'
                     }`}
-                  >
-                    Custom…
-                  </button>
+                  >Custom…</button>
                 </div>
                 {isCustomGenre && (
-                  <input
-                    autoFocus
+                  <input autoFocus
                     className="mt-1 w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#F5A623]/50 text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
                     placeholder="e.g. Solarpunk, Dieselpunk, Biopunk…"
                     value={customGenre}
@@ -672,34 +802,23 @@ export function SetupStep() {
                 <label className="text-sm font-medium text-[#F8F6F0]/80">Tone</label>
                 <div className="flex flex-wrap gap-2">
                   {PRESET_TONES.map(t => (
-                    <button
-                      key={t}
-                      type="button"
+                    <button key={t} type="button"
                       onClick={() => { setIsCustomTone(false); updateSetup({ tone: t }) }}
                       className={`px-3 py-1.5 rounded-lg text-sm border transition-colors cursor-pointer ${
                         !isCustomTone && setup.tone === t
                           ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] font-semibold'
                           : 'bg-[#1A1A3E] text-[#F8F6F0]/60 border-[#3D3D7A] hover:border-[#F5A623]/40 hover:text-[#F8F6F0]'
                       }`}
-                    >
-                      {t}
-                    </button>
+                    >{t}</button>
                   ))}
-                  <button
-                    type="button"
-                    onClick={() => setIsCustomTone(true)}
+                  <button type="button" onClick={() => setIsCustomTone(true)}
                     className={`px-3 py-1.5 rounded-lg text-sm border transition-colors cursor-pointer ${
-                      isCustomTone
-                        ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] font-semibold'
-                        : 'bg-[#1A1A3E] text-[#F8F6F0]/60 border-[#3D3D7A] hover:border-[#F5A623]/40 hover:text-[#F8F6F0]'
+                      isCustomTone ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] font-semibold' : 'bg-[#1A1A3E] text-[#F8F6F0]/60 border-[#3D3D7A] hover:border-[#F5A623]/40 hover:text-[#F8F6F0]'
                     }`}
-                  >
-                    Custom…
-                  </button>
+                  >Custom…</button>
                 </div>
                 {isCustomTone && (
-                  <input
-                    autoFocus
+                  <input autoFocus
                     className="mt-1 w-full px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#F5A623]/50 text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
                     placeholder="e.g. Melancholic, Philosophical, Satirical…"
                     value={customTone}
@@ -709,214 +828,42 @@ export function SetupStep() {
               </div>
 
               <div className="flex justify-end pt-1">
-                <Button onClick={() => setActivePanel('characters')}>
-                  Next: Characters →
-                </Button>
+                <Button onClick={() => setActivePanel('characters')}>Next: Characters →</Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          )}
 
-        {/* ── CHARACTERS panel ───────────────────────────────────────────────── */}
-        {activePanel === 'characters' && (
-          <div className="flex flex-col gap-4">
-            {/* Existing characters list */}
-            {setup.characters.length > 0 && !showCharForm && (
-              <div className="flex flex-col gap-2">
-                {setup.characters.map(char => (
-                  <div key={char.id} className="flex items-center gap-3 p-3 bg-[#2D2D5E]/50 border border-[#3D3D7A] rounded-xl">
-                    {/* Portrait */}
-                    <div className="w-10 h-10 rounded-lg overflow-hidden border border-[#3D3D7A] shrink-0 flex items-center justify-center bg-[#F5A623]/10">
-                      {char.portraitUrl
-                        ? <img src={char.portraitUrl} alt={char.name} className="w-full h-full object-cover" />
-                        : <span className="text-sm font-bold text-[#F5A623]/60">{char.name.charAt(0).toUpperCase()}</span>
-                      }
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-[#F8F6F0] text-sm">{char.name}</p>
-                      <p className="text-xs text-[#F8F6F0]/50 truncate">{char.description}</p>
-                      {(char.charGuardrails ?? []).length > 0 && (
-                        <p className="text-[10px] text-[#F5A623]/60 mt-0.5">{char.charGuardrails!.length} guardrail{char.charGuardrails!.length > 1 ? 's' : ''}</p>
-                      )}
-                    </div>
-                    <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-xs shrink-0">
-                      {char.role}
-                    </Badge>
-                    <button onClick={() => startEdit(char.id!)} className="text-[#F8F6F0]/30 hover:text-[#F5A623] transition-colors cursor-pointer">
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => removeChar(char.id)} className="text-[#F8F6F0]/30 hover:text-red-400 transition-colors cursor-pointer">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Character form */}
-            {showCharForm ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>{editingId ? 'Edit Character' : 'Add Character'}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CharacterForm
-                    initial={editingId ? setup.characters.find(c => c.id === editingId)! : emptyChar()}
-                    onSave={saveChar}
-                    onCancel={() => { setShowCharForm(false); setEditingId(null) }}
-                    isEdit={!!editingId}
-                  />
-                </CardContent>
-              </Card>
-            ) : (
-              <Button variant="secondary" onClick={() => setShowCharForm(true)}>
-                <Plus className="w-4 h-4" /> Add Character
-              </Button>
-            )}
-
-            {!showCharForm && (
-              <div className="flex justify-between pt-2">
+          {/* ── CHARACTERS panel (two-panel) ─────────────────────────────────── */}
+          {activePanel === 'characters' && (
+            <div className="h-full flex flex-col gap-4">
+              <CharactersPanel setup={setup} updateSetup={updateSetup} />
+              <div className="flex justify-between pt-2 border-t border-[#3D3D7A] shrink-0">
                 <Button variant="ghost" onClick={() => setActivePanel('project')}>← Back</Button>
                 <Button onClick={() => setActivePanel('guardrails')} disabled={setup.characters.length === 0}>
                   Next: Guardrails →
                 </Button>
               </div>
-            )}
-          </div>
-        )}
-
-        {/* ── GUARDRAILS panel ───────────────────────────────────────────────── */}
-        {activePanel === 'guardrails' && (
-          <div className="flex flex-col gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-[#F5A623]" />
-                  Story Guardrails
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <p className="text-[#F8F6F0]/50 text-sm">
-                  Rules that keep the story on track. The AI will never violate these.
-                </p>
-
-                {/* Suggested options */}
-                <div className="flex flex-col gap-1">
-                  <p className="text-xs text-[#F8F6F0]/40 uppercase tracking-wide font-medium">Quick add suggestions:</p>
-                  <div className="flex flex-col gap-1.5">
-                    {SUGGESTED_STORY_GUARDRAILS
-                      .filter(s => !setup.guardrails.includes(s))
-                      .map(s => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => addGuardrail(s)}
-                          className="text-left text-xs px-3 py-2 bg-[#1A1A3E]/60 border border-[#3D3D7A] rounded-lg text-[#F8F6F0]/60 hover:border-[#F5A623]/40 hover:text-[#F8F6F0]/90 cursor-pointer transition-colors flex items-center gap-2"
-                        >
-                          <Plus className="w-3 h-3 text-[#F5A623]/50 shrink-0" />
-                          {s}
-                        </button>
-                      ))}
-                    {SUGGESTED_STORY_GUARDRAILS.every(s => setup.guardrails.includes(s)) && (
-                      <p className="text-xs text-[#F8F6F0]/30 italic text-center py-1">All suggestions added ✓</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Added guardrails */}
-                {setup.guardrails.length > 0 && (
-                  <div className="flex flex-col gap-1.5 pt-1 border-t border-[#3D3D7A]">
-                    <p className="text-xs text-[#F8F6F0]/40 uppercase tracking-wide font-medium">Active rules:</p>
-                    {setup.guardrails.map(g => (
-                      <div key={g} className="flex items-center gap-2 p-2.5 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-lg">
-                        <Shield className="w-3.5 h-3.5 text-[#F5A623] shrink-0" />
-                        <span className="flex-1 text-sm text-[#F8F6F0]/80">{g}</span>
-                        <button onClick={() => removeGuardrail(g)} className="text-[#F8F6F0]/30 hover:text-red-400 transition-colors cursor-pointer">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Custom guardrail with polish */}
-                <div className="flex flex-col gap-1.5 pt-1 border-t border-[#3D3D7A]">
-                  <p className="text-xs text-[#F8F6F0]/40 uppercase tracking-wide font-medium flex items-center gap-1">
-                    Custom rule
-                    <span className="text-[#F8F6F0]/25 font-normal normal-case tracking-normal">— use the wand to polish your wording</span>
-                  </p>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      className="flex-1 px-3 py-2 rounded-lg bg-[#1A1A3E] border border-[#3D3D7A] text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-2 focus:ring-[#F5A623]/50 text-sm"
-                      placeholder="e.g. The story must stay grounded in realism…"
-                      value={customGuardrail}
-                      onChange={e => setCustomGuardrail(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addGuardrail(customGuardrail))}
-                    />
-                    <PolishButton
-                      text={customGuardrail}
-                      context="guardrail"
-                      onApply={polished => setCustomGuardrail(polished)}
-                    />
-                    <Button size="sm" variant="secondary" onClick={() => addGuardrail(customGuardrail)}>
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Character guardrail summary */}
-            {setup.characters.some(c => (c.charGuardrails ?? []).length > 0) && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-sm">
-                    <User className="w-4 h-4 text-[#F5A623]" />
-                    Character Guardrails
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  {setup.characters
-                    .filter(c => (c.charGuardrails ?? []).length > 0)
-                    .map(c => (
-                      <div key={c.id} className="flex flex-col gap-1">
-                        <p className="text-xs font-semibold text-[#F5A623]/80">{c.name}</p>
-                        {(c.charGuardrails ?? []).map(rule => (
-                          <div key={rule} className="flex items-center gap-2 px-3 py-1.5 bg-[#1A1A3E]/60 border border-[#3D3D7A] rounded-lg text-xs text-[#F8F6F0]/70">
-                            <AlertTriangle className="w-3 h-3 text-[#F5A623]/50 shrink-0" />
-                            {rule}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  <button
-                    type="button"
-                    onClick={() => setActivePanel('characters')}
-                    className="text-xs text-[#F5A623]/60 hover:text-[#F5A623] flex items-center gap-1 cursor-pointer transition-colors mt-1"
-                  >
-                    <Pencil className="w-3 h-3" /> Edit characters
-                  </button>
-                </CardContent>
-              </Card>
-            )}
-
-            {error && (
-              <div className="p-3 bg-red-500/15 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                {error}
-              </div>
-            )}
-
-            <div className="flex justify-between pt-2">
-              <Button variant="ghost" onClick={() => setActivePanel('characters')}>← Back</Button>
-              <Button loading={loading} size="lg" onClick={handleLaunch}>
-                <Wand2 className="w-4 h-4" />
-                Launch Story
-              </Button>
             </div>
-          </div>
-        )}
-      </div>
-      </div>
+          )}
+
+          {/* ── GUARDRAILS panel (two-panel) ──────────────────────────────────── */}
+          {activePanel === 'guardrails' && (
+            <div className="h-full flex flex-col gap-4">
+              <GuardrailsPanel setup={setup} updateSetup={updateSetup} />
+              {error && (
+                <div className="p-3 bg-red-500/15 border border-red-500/30 rounded-lg text-red-400 text-sm shrink-0">
+                  {error}
+                </div>
+              )}
+              <div className="flex justify-between pt-2 border-t border-[#3D3D7A] shrink-0">
+                <Button variant="ghost" onClick={() => setActivePanel('characters')}>← Back</Button>
+                <Button loading={loading} size="lg" onClick={handleLaunch}>
+                  <Wand2 className="w-4 h-4" /> Launch Story
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
