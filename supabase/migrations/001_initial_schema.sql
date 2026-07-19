@@ -1,16 +1,22 @@
 -- StoryForge Database Schema
 -- Run via: supabase db push
--- Or paste into Supabase SQL Editor
 
 -- ── Extensions ────────────────────────────────────────────────────────────────
--- "vector" (pgvector) must be enabled first in the Supabase Dashboard:
---   Database → Extensions → search "vector" → Enable
--- Once enabled it lives in the `extensions` schema and is available globally.
--- The line below is a no-op if already enabled; it will NOT fail.
+-- pgvector is installed into the `extensions` schema. The session that
+-- `supabase db push` uses to apply migrations does NOT have `extensions` on
+-- its search_path (only "$user", public), so the `vector` type and the
+-- `<=>` operator must be schema-qualified below (extensions.vector,
+-- extensions.vector_cosine_ops). Leaving them unqualified causes:
+--   ERROR: type "vector" does not exist (SQLSTATE 42704)
 create extension if not exists "vector" with schema extensions;
 
--- uuid-ossp is pre-installed on Supabase; gen_random_uuid() (pgcrypto) is also
--- available without any extension, so we use that instead of uuid_generate_v4().
+-- `create or replace function` validates a `language sql` body's operators
+-- and columns at CREATE time using the CURRENT SESSION search_path — not
+-- any `set search_path` clause attached to the function itself (that only
+-- applies once the function is later called). Since pgvector's `<=>`
+-- operator lives in `extensions`, it must be on the search_path here too,
+-- or you'll hit: ERROR: operator does not exist: extensions.vector <=> extensions.vector
+set search_path = public, extensions;
 
 -- ── projects ──────────────────────────────────────────────────────────────────
 create table if not exists public.projects (
@@ -21,7 +27,8 @@ create table if not exists public.projects (
   setting     text not null default '',
   tone        text not null default 'Epic',
   guardrails  text[] not null default '{}',
-  status      text not null default 'active' check (status in ('setup','active','completed')),
+  status      text not null default 'active'
+                check (status in ('setup','active','completed')),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -74,7 +81,7 @@ create table if not exists public.scenes (
   depth           int not null default 0,
   is_ending       boolean not null default false,
   metadata        jsonb not null default '{}',
-  -- vector column: only populated once pgvector extension is enabled
+  -- schema-qualified: search_path during `db push` doesn't include `extensions`
   embedding       extensions.vector(1536),
   created_at      timestamptz not null default now()
 );
@@ -82,21 +89,10 @@ create table if not exists public.scenes (
 create index if not exists scenes_project_id_idx
   on public.scenes(project_id);
 
--- ivfflat index for fast approximate nearest-neighbour search
--- Only created if the vector extension is present
-do $$
-begin
-  if exists (
-    select 1 from pg_extension where extname = 'vector'
-  ) then
-    execute $idx$
-      create index if not exists scenes_embedding_idx
-        on public.scenes
-        using ivfflat (embedding extensions.vector_cosine_ops)
-        with (lists = 100)
-    $idx$;
-  end if;
-end $$;
+create index if not exists scenes_embedding_idx
+  on public.scenes
+  using ivfflat (embedding extensions.vector_cosine_ops)
+  with (lists = 100);
 
 alter table public.scenes enable row level security;
 create policy "Users own their scenes"
@@ -172,8 +168,7 @@ create policy "Users own their story state"
   );
 
 -- ── semantic search helper ────────────────────────────────────────────────────
--- Uses <=> operator from pgvector. Safe to create even before the vector index
--- is built; Postgres will use a sequential scan until the ivfflat index exists.
+-- Parameter/return types are schema-qualified for the same reason as above.
 create or replace function public.match_scenes(
   query_embedding  extensions.vector(1536),
   project_id       uuid,
@@ -182,6 +177,7 @@ create or replace function public.match_scenes(
 )
 returns table (id uuid, content text, similarity float)
 language sql stable
+set search_path = public, extensions
 as $$
   select
     s.id,
