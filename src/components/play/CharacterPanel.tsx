@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import {
-  Users, X, Plus, Trash2, Pencil, Check,
+  Users, X, Plus, Trash2, Pencil,
   Link2, Network, List, Save,
 } from 'lucide-react'
 
@@ -21,21 +21,20 @@ import {
 interface DBCharacter {
   id: string
   name: string
-  role: 'protagonist' | 'antagonist' | 'supporting'
+  role: 'protagonist' | 'antagonist' | 'supporting' | 'minor'
   description: string
   traits: string[]
+  biography?: string
   custom_fields?: Record<string, string>
   relations?: Relation[]
 }
 
+const RELATION_TYPES = ['Ally', 'Enemy', 'Family', 'Love', 'Rival', 'Mentor'] as const
+type RelationType = typeof RELATION_TYPES[number]
+
 interface Relation {
   targetId: string
-  label: string
-}
-
-interface CustomField {
-  key: string
-  value: string
+  label: RelationType | string
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
@@ -45,7 +44,7 @@ const db = () => supabase as any
 async function fetchCharacters(projectId: string): Promise<DBCharacter[]> {
   const { data, error } = await db()
     .from('characters')
-    .select('id, name, role, description, traits, custom_fields, relations')
+    .select('id, name, role, description, traits, biography, custom_fields, relations')
     .eq('project_id', projectId)
     .order('role', { ascending: true })
   if (error) throw new Error(error.message)
@@ -94,7 +93,7 @@ function RelationshipWeb({ characters }: { characters: DBCharacter[] }) {
   }
 
   const roleColor = (role: string) =>
-    role === 'protagonist' ? '#F5A623' : role === 'antagonist' ? '#f87171' : '#94a3b8'
+    role === 'protagonist' ? '#F5A623' : role === 'antagonist' ? '#f87171' : role === 'minor' ? '#60a5fa' : '#94a3b8'
 
   if (characters.length === 0) {
     return <p className="text-sm text-[#F8F6F0]/25 text-center py-8">No characters to display.</p>
@@ -176,12 +175,17 @@ interface BioModalProps {
 }
 
 function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalProps) {
-  const [draft, setDraft] = useState<DBCharacter>({ ...char, custom_fields: { ...(char.custom_fields ?? {}) }, relations: [...(char.relations ?? [])] })
+  const [draft, setDraft] = useState<DBCharacter>({
+    ...char,
+    biography: char.biography ?? '',
+    custom_fields: { ...(char.custom_fields ?? {}) },
+    relations: [...(char.relations ?? [])],
+  })
   const [saving, setSaving] = useState(false)
   const [newKey, setNewKey] = useState('')
   const [newVal, setNewVal] = useState('')
   const [relTarget, setRelTarget] = useState('')
-  const [relLabel, setRelLabel] = useState('')
+  const [relLabel, setRelLabel] = useState<RelationType>('Ally')
   const [relView, setRelView] = useState<'web' | 'log'>('web')
 
   const otherChars = allChars.filter(c => c.id !== char.id)
@@ -206,12 +210,12 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
   }
 
   const addRelation = () => {
-    if (!relTarget || !relLabel.trim()) return
+    if (!relTarget) return
     setDraft(d => ({
       ...d,
-      relations: [...(d.relations ?? []), { targetId: relTarget, label: relLabel.trim() }],
+      relations: [...(d.relations ?? []), { targetId: relTarget, label: relLabel }],
     }))
-    setRelLabel('')
+    setRelLabel('Ally')
     setRelTarget('')
   }
 
@@ -221,7 +225,17 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
 
   const handleSave = async () => {
     setSaving(true)
-    try { await updateCharacter(draft.id, { name: draft.name, description: draft.description, traits: draft.traits, custom_fields: draft.custom_fields, relations: draft.relations }) }
+    try {
+      await updateCharacter(draft.id, {
+        name: draft.name,
+        role: draft.role,
+        description: draft.description,
+        traits: draft.traits,
+        biography: draft.biography,
+        custom_fields: draft.custom_fields,
+        relations: draft.relations,
+      })
+    }
     catch { /* ignore */ }
     finally {
       setSaving(false)
@@ -229,7 +243,8 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
     }
   }
 
-  const roleColor = char.role === 'protagonist' ? '#F5A623' : char.role === 'antagonist' ? '#f87171' : '#94a3b8'
+  const roleColor = (role: string) =>
+    role === 'protagonist' ? '#F5A623' : role === 'antagonist' ? '#f87171' : role === 'minor' ? '#60a5fa' : '#94a3b8'
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
@@ -240,8 +255,8 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#3D3D7A] shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-bold" style={{ backgroundColor: `${roleColor}22`, border: `1.5px solid ${roleColor}` }}>
-              <span style={{ color: roleColor }}>{char.name.charAt(0).toUpperCase()}</span>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-bold" style={{ backgroundColor: `${roleColor(draft.role)}22`, border: `1.5px solid ${roleColor(draft.role)}` }}>
+              <span style={{ color: roleColor(draft.role) }}>{draft.name.charAt(0).toUpperCase() || '?'}</span>
             </div>
             <div>
               <input
@@ -249,9 +264,16 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
                 value={draft.name}
                 onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
               />
-              <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-[10px] ml-2">
-                {char.role}
-              </Badge>
+              <select
+                value={draft.role}
+                onChange={e => setDraft(d => ({ ...d, role: e.target.value as DBCharacter['role'] }))}
+                className="text-xs ml-2 bg-[#2D2D5E]/60 border border-[#3D3D7A] rounded px-1.5 py-0.5 text-[#F8F6F0] focus:outline-none focus:ring-1 focus:ring-[#F5A623]/40"
+              >
+                <option value="protagonist">protagonist</option>
+                <option value="antagonist">antagonist</option>
+                <option value="supporting">supporting</option>
+                <option value="minor">minor</option>
+              </select>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -279,6 +301,18 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
                 className="w-full px-3 py-2 rounded-lg bg-[#2D2D5E]/40 border border-[#3D3D7A] text-[#F8F6F0]/80 placeholder:text-[#F8F6F0]/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#F5A623]/40 text-sm"
                 value={draft.description}
                 onChange={e => setDraft(d => ({ ...d, description: e.target.value }))}
+              />
+            </div>
+
+            {/* Biography */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide">Biography</label>
+              <textarea
+                rows={4}
+                placeholder="Character backstory, history, and motivations…"
+                className="w-full px-3 py-2 rounded-lg bg-[#2D2D5E]/40 border border-[#3D3D7A] text-[#F8F6F0]/80 placeholder:text-[#F8F6F0]/30 resize-none focus:outline-none focus:ring-2 focus:ring-[#F5A623]/40 text-sm"
+                value={draft.biography ?? ''}
+                onChange={e => setDraft(d => ({ ...d, biography: e.target.value }))}
               />
             </div>
 
@@ -382,13 +416,15 @@ function BiographyModal({ char, allChars, onSave, onDelete, onClose }: BioModalP
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
-                  <input
-                    className="flex-1 px-2 py-1.5 rounded-lg bg-[#2D2D5E]/40 border border-[#3D3D7A] text-sm text-[#F8F6F0] placeholder:text-[#F8F6F0]/30 focus:outline-none focus:ring-1 focus:ring-[#F5A623]/40"
-                    placeholder="Relation label (e.g. mentor)"
+                  <select
+                    className="px-2 py-1.5 rounded-lg bg-[#2D2D5E]/40 border border-[#3D3D7A] text-sm text-[#F8F6F0] focus:outline-none focus:ring-1 focus:ring-[#F5A623]/40"
                     value={relLabel}
-                    onChange={e => setRelLabel(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addRelation()}
-                  />
+                    onChange={e => setRelLabel(e.target.value as RelationType)}
+                  >
+                    {RELATION_TYPES.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                   <button onClick={addRelation} className="px-2 py-1.5 bg-[#F5A623]/15 text-[#F5A623] rounded-lg border border-[#F5A623]/30 hover:bg-[#F5A623]/25 cursor-pointer transition-colors">
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -474,7 +510,7 @@ export function CharacterPanel({ projectId, onClose }: CharacterPanelProps) {
   }
 
   const roleColor = (role: string) =>
-    role === 'protagonist' ? '#F5A623' : role === 'antagonist' ? '#f87171' : '#94a3b8'
+    role === 'protagonist' ? '#F5A623' : role === 'antagonist' ? '#f87171' : role === 'minor' ? '#60a5fa' : '#94a3b8'
 
   return (
     <>
@@ -513,7 +549,7 @@ export function CharacterPanel({ projectId, onClose }: CharacterPanelProps) {
                     <p className="text-sm font-medium text-[#F8F6F0] truncate group-hover:text-[#F5A623] transition-colors">{char.name}</p>
                     <p className="text-xs text-[#F8F6F0]/40 truncate">{char.description || '—'}</p>
                   </div>
-                  <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-[10px] shrink-0">
+                  <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-[10px] shrink-0 capitalize">
                     {char.role}
                   </Badge>
                   <Pencil className="w-3.5 h-3.5 text-[#F8F6F0]/20 group-hover:text-[#F5A623]/60 transition-colors shrink-0" />
