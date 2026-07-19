@@ -7,11 +7,15 @@ import { StoriesTab } from '@/components/dashboard/StoriesTab'
 import { SettingsTab } from '@/components/dashboard/SettingsTab'
 import { SetupStep } from '@/components/setup/SetupStep'
 import { PlayStep } from '@/components/play/PlayStep'
+import { ScenesTab } from '@/components/play/ScenesTab'
+import { BranchesTab } from '@/components/play/BranchesTab'
 import { ReviewStep } from '@/components/review/ReviewStep'
 import {
   BookOpen, LayoutDashboard, Library, Settings, LogOut,
   ChevronRight, PanelLeft, PanelLeftClose,
+  Wand2, List, GitBranch, BarChart2,
 } from 'lucide-react'
+import type { PlayTab } from '@/types/story'
 
 type SidebarTab = 'dashboard' | 'stories' | 'settings'
 /** expanded = always wide open  |  collapsed = icon-only  |  hover = expand on hover */
@@ -36,6 +40,42 @@ function StepBreadcrumb({ step }: { step: string }) {
           {i > 0 && <ChevronRight className="w-3 h-3" />}
           <span className={i === idx ? 'text-[#F5A623] font-semibold' : ''}>{s.label}</span>
         </span>
+      ))}
+    </div>
+  )
+}
+
+// ── In-story tab bar (Play / Scenes / Branches) ───────────────────────────────
+interface StoryTabBarProps {
+  activeTab: PlayTab
+  onChange: (t: PlayTab) => void
+  sceneCount: number
+}
+
+function StoryTabBar({ activeTab, onChange, sceneCount }: StoryTabBarProps) {
+  const tabs: { id: PlayTab; label: string; icon: React.ElementType }[] = [
+    { id: 'play',     label: 'Play',     icon: Wand2      },
+    { id: 'scenes',   label: `Scenes${sceneCount > 0 ? ` (${sceneCount})` : ''}`, icon: List },
+    { id: 'branches', label: 'Branches', icon: GitBranch  },
+  ]
+
+  return (
+    <div className="fixed top-0 right-0 z-30 flex items-center gap-1 px-3 py-2 bg-[#12122A]/90 backdrop-blur-sm border-b border-[#3D3D7A]"
+      style={{ left: SIDEBAR_COLLAPSED_W }}
+    >
+      {tabs.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          onClick={() => onChange(id)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+            activeTab === id
+              ? 'bg-[#F5A623]/20 text-[#F5A623]'
+              : 'text-[#F8F6F0]/40 hover:text-[#F8F6F0]/70 hover:bg-[#2D2D5E]/60'
+          }`}
+        >
+          <Icon className="w-3.5 h-3.5" />
+          {label}
+        </button>
       ))}
     </div>
   )
@@ -69,6 +109,10 @@ function Sidebar({
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'stories',   label: 'Stories',   icon: Library          },
     { id: 'settings',  label: 'Settings',  icon: Settings         },
+  ]
+
+  const storyNavItems: { label: string; icon: React.ElementType }[] = [
+    { label: 'Playing', icon: BarChart2 },
   ]
 
   const modeNextLabel: Record<SidebarMode, string> = {
@@ -117,28 +161,38 @@ function Sidebar({
 
       {/* Nav */}
       <nav className="flex flex-col gap-0.5 px-2 flex-1">
-        {navItems.map(({ id, label, icon: Icon }) => {
-          const active = activeTab === id && !storyActive
-          return (
-            <button
-              key={id}
-              title={!isOpen ? label : undefined}
-              onClick={() => { onTabChange(id); if (storyActive) onStoryReset() }}
-              className={`group flex items-center gap-3 px-2.5 py-2.5 rounded-xl transition-colors cursor-pointer w-full ${
-                active
-                  ? 'bg-[#F5A623]/20 text-[#F5A623]'
-                  : 'text-[#F8F6F0]/40 hover:text-[#F8F6F0]/80 hover:bg-[#2D2D5E]/60'
-              }`}
-            >
+        {storyActive ? (
+          /* Story-active: show a single "Playing" indicator */
+          storyNavItems.map(({ label, icon: Icon }) => (
+            <div key={label} className="flex items-center gap-3 px-2.5 py-2.5 rounded-xl bg-[#F5A623]/20 text-[#F5A623]">
               <Icon className="w-5 h-5 shrink-0" />
-              {isOpen && (
-                <span className="text-sm font-medium whitespace-nowrap overflow-hidden">
-                  {label}
-                </span>
-              )}
-            </button>
-          )
-        })}
+              {isOpen && <span className="text-sm font-medium whitespace-nowrap">{label}</span>}
+            </div>
+          ))
+        ) : (
+          navItems.map(({ id, label, icon: Icon }) => {
+            const active = activeTab === id
+            return (
+              <button
+                key={id}
+                title={!isOpen ? label : undefined}
+                onClick={() => { onTabChange(id) }}
+                className={`group flex items-center gap-3 px-2.5 py-2.5 rounded-xl transition-colors cursor-pointer w-full ${
+                  active
+                    ? 'bg-[#F5A623]/20 text-[#F5A623]'
+                    : 'text-[#F8F6F0]/40 hover:text-[#F8F6F0]/80 hover:bg-[#2D2D5E]/60'
+                }`}
+              >
+                <Icon className="w-5 h-5 shrink-0" />
+                {isOpen && (
+                  <span className="text-sm font-medium whitespace-nowrap overflow-hidden">
+                    {label}
+                  </span>
+                )}
+              </button>
+            )
+          })
+        )}
       </nav>
 
       {/* Bottom area */}
@@ -146,6 +200,18 @@ function Sidebar({
         {/* User email when expanded */}
         {isOpen && userEmail && (
           <div className="px-2.5 py-1 text-[10px] text-[#F8F6F0]/25 truncate">{userEmail}</div>
+        )}
+
+        {/* Back to dashboard (story mode) */}
+        {storyActive && (
+          <button
+            title="Back to dashboard"
+            onClick={onStoryReset}
+            className="flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-[#F8F6F0]/40 hover:text-[#F8F6F0]/80 hover:bg-[#2D2D5E]/60 transition-colors cursor-pointer w-full"
+          >
+            <LayoutDashboard className="w-4 h-4 shrink-0" />
+            {isOpen && <span className="text-sm whitespace-nowrap">Dashboard</span>}
+          </button>
         )}
 
         {/* Sign out */}
@@ -205,10 +271,10 @@ export function AppShell() {
 
   if (!user) return <AuthScreen />
 
-  // Main content left-margin matches the collapsed icon rail (64px).
-  // The sidebar may hover-expand visually, but it floats over content —
-  // so the content offset is always the minimum collapsed width.
+  const isStoryMode = state.step === 'play' || state.step === 'review'
   const mainMargin = SIDEBAR_COLLAPSED_W
+  // When in play mode with tabs, add top padding to clear the tab bar
+  const mainPaddingTop = isStoryMode && state.step === 'play' ? 44 : 0
 
   return (
     <div className="bg-[#1A1A3E] min-h-screen">
@@ -219,18 +285,33 @@ export function AppShell() {
         onModeToggle={cycleSidebarMode}
         signOut={signOut}
         userEmail={user.email ?? undefined}
-        storyActive={state.step !== 'dashboard'}
+        storyActive={isStoryMode}
         onStoryReset={() => dispatch({ type: 'RESET' })}
       />
 
+      {/* In-story tab bar */}
+      {state.step === 'play' && (
+        <StoryTabBar
+          activeTab={state.playTab}
+          onChange={tab => dispatch({ type: 'SET_PLAY_TAB', payload: tab })}
+          sceneCount={state.scenes.length}
+        />
+      )}
+
       {/* Main area — always offset by the fixed collapsed sidebar width */}
       <main
-        style={{ marginLeft: mainMargin }}
+        style={{ marginLeft: mainMargin, paddingTop: mainPaddingTop }}
         className="min-h-screen overflow-y-auto"
       >
-        {state.step === 'play'    && <PlayStep />}
-        {state.step === 'review'  && <ReviewStep />}
+        {/* Review step */}
+        {state.step === 'review' && <ReviewStep />}
 
+        {/* Play step: tab-based */}
+        {state.step === 'play' && state.playTab === 'play'     && <PlayStep />}
+        {state.step === 'play' && state.playTab === 'scenes'   && <ScenesTab />}
+        {state.step === 'play' && state.playTab === 'branches' && <BranchesTab />}
+
+        {/* Dashboard steps */}
         {state.step === 'dashboard' && (
           <>
             {sidebarTab === 'dashboard' && <DashboardTab />}
@@ -240,7 +321,7 @@ export function AppShell() {
         )}
 
         {/* Breadcrumb overlay while in story workflow */}
-        {state.step !== 'dashboard' && (
+        {isStoryMode && (
           <div className="fixed top-3 right-4 z-40 flex items-center gap-3">
             <StepBreadcrumb step={state.step} />
             <button
