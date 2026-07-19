@@ -99,13 +99,7 @@ function CharacterModal({
             <p className="text-sm text-[#F8F6F0]/80 leading-relaxed">{char.description || '—'}</p>
           </div>
 
-          {/* Backstory */}
-          <div>
-            <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-1.5">Backstory</p>
-            <p className="text-sm text-[#F8F6F0]/70 leading-relaxed">{char.backstory || '—'}</p>
-          </div>
-
-          {/* Traits */}
+{/* Traits */}
           {char.traits.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-1.5">Traits</p>
@@ -228,9 +222,6 @@ function CharactersTab({
                   <div className="flex flex-wrap gap-1">
                     {char.traits.map(t => <Badge key={t} variant="gold" className="text-[10px]">{t}</Badge>)}
                   </div>
-                )}
-                {char.backstory && (
-                  <p className="text-xs text-[#F8F6F0]/55 leading-relaxed line-clamp-3">{char.backstory}</p>
                 )}
                 {charGuardrails.length > 0 && (
                   <div className="flex flex-col gap-1 mt-1">

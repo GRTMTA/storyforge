@@ -6,10 +6,11 @@ export interface Character {
   role: 'protagonist' | 'antagonist' | 'supporting'
   description: string
   traits: string[]
-  backstory: string
+  portraitUrl?: string          // optional, defaults to initials placeholder
+  charGuardrails?: string[]     // per-character behavior rules
   // optional relationship fields
-  relatedTo?: string[]      // ids of related characters
-  relationshipLabel?: string // e.g. "sibling of", "mentor of"
+  relatedTo?: string[]
+  relationshipLabel?: string
 }
 
 export interface CharacterGuardrail {

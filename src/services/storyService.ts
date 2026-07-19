@@ -41,7 +41,7 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
       role: char.role,
       description: char.description,
       traits: char.traits,
-      backstory: char.backstory,
+      
       current_state: {},
     })
   }
@@ -101,7 +101,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 
   const { data: chars, error: charErr } = await db()
     .from('characters')
-    .select('id, name, role, description, traits, backstory')
+    .select('id, name, role, description, traits')
     .eq('project_id', projectId)
 
   if (charErr) throw new Error(charErr.message)
@@ -118,7 +118,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
       role: c.role,
       description: c.description,
       traits: c.traits ?? [],
-      backstory: c.backstory,
+      
     })),
   }
 }
@@ -127,7 +127,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 export async function loadCharacters(projectId: string): Promise<Character[]> {
   const { data, error } = await db()
     .from('characters')
-    .select('id, name, role, description, traits, backstory')
+    .select('id, name, role, description, traits')
     .eq('project_id', projectId)
     .order('role', { ascending: true })
 
@@ -138,7 +138,7 @@ export async function loadCharacters(projectId: string): Promise<Character[]> {
     role: c.role,
     description: c.description,
     traits: c.traits ?? [],
-    backstory: c.backstory,
+    
   }))
 }
 

@@ -1,10 +1,10 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? ''
+const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') ?? ''
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-const MODEL = 'meta-llama/llama-3.2-3b-instruct:free'
+const MODEL = 'llama-3.3-70b-versatile'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,7 +16,8 @@ interface Character {
   role: string
   description: string
   traits: string[]
-  backstory: string
+  portraitUrl?: string
+  charGuardrails?: string[]
 }
 
 interface ProjectSetup {
@@ -60,27 +61,31 @@ interface GeneratedScene {
   guardrailViolations: string[]
 }
 
-async function callOpenRouter(prompt: string): Promise<string> {
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+async function callGroq(prompt: string): Promise<string> {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Authorization': `Bearer ${GROQ_API_KEY}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://storyforge.app',
-      'X-Title': 'StoryForge',
     },
     body: JSON.stringify({
       model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a master narrative AI. Always respond with valid JSON only — no markdown, no prose outside the JSON object.',
+        },
+        { role: 'user', content: prompt },
+      ],
       temperature: 0.85,
-      max_tokens: 1200,
+      max_tokens: 1400,
       response_format: { type: 'json_object' },
     }),
   })
 
   if (!response.ok) {
     const err = await response.text()
-    throw new Error(`OpenRouter error ${response.status}: ${err}`)
+    throw new Error(`Groq error ${response.status}: ${err}`)
   }
 
   const data = await response.json()
@@ -95,7 +100,12 @@ function buildPrompt(
   depth: number,
 ): string {
   const charSummary = setup.characters
-    .map(c => `- ${c.name} (${c.role}): ${c.description}. Traits: ${c.traits.join(', ')}`)
+    .map(c => {
+      const guardrailNote = (c.charGuardrails ?? []).length
+        ? `\n  CHARACTER RULES (never break): ${c.charGuardrails!.join('; ')}`
+        : ''
+      return `- ${c.name} (${c.role}): ${c.description}. Traits: ${c.traits.join(', ')}${guardrailNote}`
+    })
     .join('\n')
 
   const stateSummary = storyState
@@ -107,8 +117,9 @@ function buildPrompt(
     : ''
 
   const choiceCtx = choiceLabel ? `\nThe player chose: "${choiceLabel}"` : ''
-
-  const guardrailsText = setup.guardrails.map(g => `- ${g}`).join('\n')
+  const guardrailsText = setup.guardrails.length
+    ? setup.guardrails.map(g => `- ${g}`).join('\n')
+    : '- None specified'
 
   const isLateGame = depth >= 4
   const endingInstruction = isLateGame
@@ -123,15 +134,15 @@ CHARACTERS:
 ${charSummary}
 ${stateSummary}${previousCtx}${choiceCtx}
 
-GUARDRAILS (enforce strictly):
+STORY GUARDRAILS (enforce strictly — never violate):
 ${guardrailsText}
 
 ${endingInstruction}
 
-Write the next scene. Return ONLY valid JSON matching this exact schema:
+Write the next scene. Return ONLY a valid JSON object with this exact shape:
 {
   "title": "Scene title (4-8 words)",
-  "content": "Rich narrative prose (200-350 words). Second person (you). Vivid sensory details. Advance the ${setup.tone.toLowerCase()} tone.",
+  "content": "Rich narrative prose (200-350 words). Second person perspective (you). Vivid sensory details. Advance the ${setup.tone.toLowerCase()} tone.",
   "isEnding": false,
   "choices": [
     {
@@ -148,12 +159,12 @@ Write the next scene. Return ONLY valid JSON matching this exact schema:
 }
 
 Rules:
-- choices array: 2-4 items (0 items only if isEnding is true)
-- guardrailViolations: list any guardrail rules you had to soften or work around
+- choices: 2-4 items; 0 only when isEnding is true
+- guardrailViolations: list any rules you had to soften
 - stateUpdates.plotThreads: key=thread name, value=current status
-- stateUpdates.cluesDiscovered: new clues only (not already discovered)
-- content must not break any listed guardrail rules
-- JSON only, no markdown fences`
+- stateUpdates.cluesDiscovered: new clues only
+- Never break character guardrails unless the story explicitly overrides them
+- JSON only`
 }
 
 serve(async (req) => {
@@ -167,7 +178,6 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-    // Load parent scene content for context
     let parentContent: string | null = null
     let depth = 0
     let sceneOrder = 0
@@ -186,7 +196,6 @@ serve(async (req) => {
       }
     }
 
-    // Count existing scenes for ordering
     const { count } = await supabase
       .from('scenes')
       .select('id', { count: 'exact', head: true })
@@ -194,9 +203,8 @@ serve(async (req) => {
 
     sceneOrder = Math.max(sceneOrder, count ?? 0)
 
-    // Generate via OpenRouter
     const prompt = buildPrompt(setup, parentContent, choiceLabel ?? null, storyState ?? null, depth)
-    const raw = await callOpenRouter(prompt)
+    const raw = await callGroq(prompt)
 
     let generated: GeneratedScene
     try {
@@ -205,7 +213,6 @@ serve(async (req) => {
       throw new Error('AI returned invalid JSON: ' + raw.slice(0, 200))
     }
 
-    // Guardrail post-processing: truncate anything suspicious
     const contentLower = generated.content.toLowerCase()
     const violations: string[] = [...(generated.guardrailViolations ?? [])]
 
@@ -217,7 +224,6 @@ serve(async (req) => {
       }
     }
 
-    // Persist scene
     const { data: scene, error: sceneErr } = await supabase
       .from('scenes')
       .insert({
@@ -236,7 +242,6 @@ serve(async (req) => {
 
     if (sceneErr || !scene) throw new Error(sceneErr?.message ?? 'Failed to save scene')
 
-    // Persist choices
     const choiceRows = (generated.choices ?? []).map((c) => ({
       scene_id: scene.id,
       label: c.label,
@@ -245,24 +250,18 @@ serve(async (req) => {
       leads_to_scene_id: null,
     }))
 
-    let persistedChoices: Array<{ id: string; scene_id: string; label: string; description: string; consequence_hint: string; leads_to_scene_id: string | null; created_at: string }> = []
+    let persistedChoices: Array<{
+      id: string; scene_id: string; label: string; description: string
+      consequence_hint: string; leads_to_scene_id: string | null; created_at: string
+    }> = []
     if (choiceRows.length > 0) {
       const { data: choices } = await supabase.from('choices').insert(choiceRows).select()
       persistedChoices = choices ?? []
     }
 
-    // Upsert story state
-    const existingState = storyState ?? {
-      plotThreads: {},
-      cluesDiscovered: [],
-      characterStates: {},
-      turnCount: 0,
-    }
-
+    const existingState = storyState ?? { plotThreads: {}, cluesDiscovered: [], characterStates: {}, turnCount: 0 }
     const newPlotThreads = { ...existingState.plotThreads, ...(generated.stateUpdates?.plotThreads ?? {}) }
-    const newClues = [
-      ...new Set([...existingState.cluesDiscovered, ...(generated.stateUpdates?.cluesDiscovered ?? [])]),
-    ]
+    const newClues = [...new Set([...existingState.cluesDiscovered, ...(generated.stateUpdates?.cluesDiscovered ?? [])])]
 
     const { data: savedState } = await supabase
       .from('story_state')
@@ -277,7 +276,7 @@ serve(async (req) => {
       .select()
       .single()
 
-    const responseData = {
+    return new Response(JSON.stringify({
       scene: {
         id: scene.id,
         projectId: scene.project_id,
@@ -298,21 +297,17 @@ serve(async (req) => {
         consequenceHint: c.consequence_hint,
         leadsToSceneId: c.leads_to_scene_id,
       })),
-      stateUpdates: savedState
-        ? {
-            id: savedState.id,
-            projectId: savedState.project_id,
-            currentSceneId: savedState.current_scene_id,
-            plotThreads: savedState.plot_threads as Record<string, string>,
-            cluesDiscovered: savedState.clues_discovered,
-            characterStates: savedState.character_states as Record<string, Record<string, unknown>>,
-            turnCount: savedState.turn_count,
-          }
-        : {},
+      stateUpdates: savedState ? {
+        id: savedState.id,
+        projectId: savedState.project_id,
+        currentSceneId: savedState.current_scene_id,
+        plotThreads: savedState.plot_threads,
+        cluesDiscovered: savedState.clues_discovered,
+        characterStates: savedState.character_states,
+        turnCount: savedState.turn_count,
+      } : {},
       guardrailViolations: violations,
-    }
-
-    return new Response(JSON.stringify(responseData), {
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
