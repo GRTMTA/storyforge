@@ -539,10 +539,31 @@ export function SetupStep() {
   ]
 
   return (
-    <div className="min-h-screen bg-[#1A1A3E] px-4 py-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div
+        className="w-[75vw] h-[75vh] min-w-[320px] min-h-[480px] bg-[#1A1A3E] border border-[#3D3D7A] rounded-2xl flex flex-col shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+      {/* Modal close / back to dashboard */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[#3D3D7A] shrink-0">
+        <div className="flex items-center gap-2">
+          <Wand2 className="w-5 h-5 text-[#F5A623]" />
+          <h2 className="text-lg font-bold text-[#F8F6F0]">New Story</h2>
+        </div>
+        <button
+          onClick={() => dispatch({ type: 'RESET' })}
+          className="p-1.5 rounded-lg text-[#F8F6F0]/40 hover:text-[#F8F6F0] hover:bg-[#2D2D5E] transition-colors cursor-pointer"
+          title="Cancel"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-6">
       <div className="max-w-2xl mx-auto">
 
-        {/* Header */}
+        {/* Header (replaced by modal header above) */}
+        {false && (
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-3">
             <Wand2 className="w-6 h-6 text-[#F5A623]" />
@@ -550,6 +571,8 @@ export function SetupStep() {
           </div>
           <p className="text-[#F8F6F0]/50 text-sm">Set up your narrative world before the AI begins</p>
         </div>
+
+        )}
 
         {/* Tab bar */}
         <div className="flex gap-1 p-1 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl mb-6">
@@ -892,6 +915,8 @@ export function SetupStep() {
             </div>
           </div>
         )}
+      </div>
+      </div>
       </div>
     </div>
   )
