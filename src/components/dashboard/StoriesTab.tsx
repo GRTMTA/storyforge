@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStory } from '@/contexts/StoryContext'
 import {
@@ -11,8 +11,10 @@ import {
 } from '@/services/storyService'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { ProjectDetailDrawer } from './ProjectDetailDrawer'
-import { Plus, Clock, Wand2, GitBranch, Users, Film, Trophy } from 'lucide-react'
+import {
+  Plus, Clock, Wand2, GitBranch, Users, Film, Trophy,
+  Search, ChevronDown,
+} from 'lucide-react'
 import type { ProjectStats } from '@/types/story'
 
 interface ProjectRow {
@@ -25,10 +27,13 @@ interface ProjectRow {
   updated_at: string
 }
 
+type SortOption = 'alpha-asc' | 'alpha-desc' | 'newest' | 'oldest' | 'most-scenes' | 'most-words'
+type FilterStatus = 'all' | 'draft' | 'active' | 'completed'
+
 function StatPill({ icon: Icon, value, label }: { icon: React.ElementType; value: number; label: string }) {
   return (
-    <div className="flex items-center gap-1 text-[#F8F6F0]/50 text-xs">
-      <Icon className="w-3 h-3 text-[#F5A623]/60" />
+    <div className="flex items-center gap-1.5 text-[#F8F6F0]/50 text-sm">
+      <Icon className="w-3.5 h-3.5 text-[#F5A623]/60" />
       <span className="font-semibold text-[#F8F6F0]/70">{value}</span>
       <span>{label}</span>
     </div>
@@ -45,7 +50,29 @@ function formatDate(iso: string) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export function StoriesTab() {
+const STATUS_LABEL: Record<string, string> = {
+  setup: 'Draft',
+  active: 'In-Progress',
+  completed: 'Complete',
+}
+
+const STATUS_VARIANT: Record<string, 'default' | 'gold' | 'success' | 'warning' | 'danger'> = {
+  setup: 'default',
+  active: 'gold',
+  completed: 'success',
+}
+
+interface StoryCard {
+  id: string
+  title: string
+  genre: string
+  tone: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCard) => void }) {
   const { user } = useAuth()
   const { dispatch } = useStory()
   const [projects, setProjects] = useState<ProjectRow[]>([])
@@ -53,7 +80,13 @@ export function StoriesTab() {
   const [loading, setLoading]   = useState(true)
   const [resuming, setResuming] = useState<string | null>(null)
   const [error, setError]       = useState<string | null>(null)
-  const [detailProject, setDetailProject] = useState<ProjectRow | null>(null)
+
+  // Controls
+  const [search, setSearch]         = useState('')
+  const [sort, setSort]             = useState<SortOption>('newest')
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [filterGenre, setFilterGenre]   = useState('')
+  const [filterTone, setFilterTone]     = useState('')
 
   useEffect(() => {
     if (!user) return
@@ -100,106 +133,228 @@ export function StoriesTab() {
     }
   }
 
-  return (
-    <div className="px-8 py-8 max-w-4xl mx-auto">
+  // Unique genres and tones for filter dropdowns
+  const genres = useMemo(() => [...new Set(projects.map(p => p.genre))].sort(), [projects])
+  const tones  = useMemo(() => [...new Set(projects.map(p => p.tone))].sort(),  [projects])
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-[#F8F6F0] mb-1">Stories</h1>
-          <p className="text-[#F8F6F0]/40 text-sm">All your narrative worlds</p>
+  const filtered = useMemo(() => {
+    let list = [...projects]
+
+    // search
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(p => p.title.toLowerCase().includes(q))
+    }
+
+    // status filter
+    if (filterStatus !== 'all') {
+      const map: Record<FilterStatus, string> = { all: '', draft: 'setup', active: 'active', completed: 'completed' }
+      list = list.filter(p => p.status === map[filterStatus])
+    }
+
+    // genre filter
+    if (filterGenre) list = list.filter(p => p.genre === filterGenre)
+
+    // tone filter
+    if (filterTone) list = list.filter(p => p.tone === filterTone)
+
+    // sort
+    list.sort((a, b) => {
+      switch (sort) {
+        case 'alpha-asc':   return a.title.localeCompare(b.title)
+        case 'alpha-desc':  return b.title.localeCompare(a.title)
+        case 'newest':      return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        case 'oldest':      return new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+        case 'most-scenes': return (stats[b.id]?.sceneCount ?? 0) - (stats[a.id]?.sceneCount ?? 0)
+        case 'most-words':  return (stats[b.id]?.sceneCount ?? 0) - (stats[a.id]?.sceneCount ?? 0)
+        default: return 0
+      }
+    })
+
+    return list
+  }, [projects, search, filterStatus, filterGenre, filterTone, sort, stats])
+
+  const selectClass = 'h-10 px-3 bg-[#2D2D5E]/60 border border-[#3D3D7A] rounded-xl text-[#F8F6F0] text-sm focus:outline-none focus:border-[#F5A623]/50 cursor-pointer'
+
+  return (
+    <div className="px-10 py-10 w-full">
+
+      {/* ── Header ─────────────────────────────────────────────────────────────── */}
+      <div className="text-center mb-3">
+        <h1 className="text-4xl font-bold text-[#F8F6F0]">My Stories</h1>
+        <p className="text-[#F8F6F0]/50 text-lg mt-2">
+          {projects.length === 0 ? 'No stories yet — create one to begin' : `${projects.length} ${projects.length === 1 ? 'story' : 'stories'} in your collection`}
+        </p>
+      </div>
+
+      {/* ── Controls row ───────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap mb-8 mt-6">
+        {/* Search */}
+        <div className="flex-1 min-w-[200px] flex items-center gap-2 h-10 px-3 bg-[#2D2D5E]/60 border border-[#3D3D7A] rounded-xl focus-within:border-[#F5A623]/50 transition-colors">
+          <Search className="w-4 h-4 text-[#F8F6F0]/30 shrink-0" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search stories…"
+            className="flex-1 bg-transparent text-[#F8F6F0] text-sm placeholder-[#F8F6F0]/25 focus:outline-none"
+          />
         </div>
-        <Button onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })} className="gap-2">
+
+        {/* Sort */}
+        <div className="relative flex items-center">
+          <select value={sort} onChange={e => setSort(e.target.value as SortOption)} className={selectClass}>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="alpha-asc">A → Z</option>
+            <option value="alpha-desc">Z → A</option>
+            <option value="most-scenes">Most Scenes</option>
+            <option value="most-words">Most Words</option>
+          </select>
+          <ChevronDown className="w-3.5 h-3.5 text-[#F8F6F0]/40 absolute right-2.5 pointer-events-none" />
+        </div>
+
+        {/* Status filter */}
+        <div className="relative flex items-center">
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as FilterStatus)} className={selectClass}>
+            <option value="all">All Status</option>
+            <option value="draft">Draft</option>
+            <option value="active">In-Progress</option>
+            <option value="completed">Complete</option>
+          </select>
+          <ChevronDown className="w-3.5 h-3.5 text-[#F8F6F0]/40 absolute right-2.5 pointer-events-none" />
+        </div>
+
+        {/* Genre filter */}
+        {genres.length > 1 && (
+          <div className="relative flex items-center">
+            <select value={filterGenre} onChange={e => setFilterGenre(e.target.value)} className={selectClass}>
+              <option value="">All Genres</option>
+              {genres.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-[#F8F6F0]/40 absolute right-2.5 pointer-events-none" />
+          </div>
+        )}
+
+        {/* Tone filter */}
+        {tones.length > 1 && (
+          <div className="relative flex items-center">
+            <select value={filterTone} onChange={e => setFilterTone(e.target.value)} className={selectClass}>
+              <option value="">All Tones</option>
+              {tones.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-[#F8F6F0]/40 absolute right-2.5 pointer-events-none" />
+          </div>
+        )}
+
+        {/* New Story */}
+        <Button onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })} className="shrink-0 h-10">
           <Plus className="w-4 h-4" /> New Story
         </Button>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-500/15 border border-red-500/30 rounded-xl text-red-400 text-sm">
+        <div className="mb-6 p-4 bg-red-500/15 border border-red-500/30 rounded-xl text-red-400 text-base">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 rounded-full border-4 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
+        <div className="flex justify-center py-20">
+          <div className="w-10 h-10 rounded-full border-4 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
         </div>
-      ) : projects.length === 0 ? (
-        <div className="text-center py-20 text-[#F8F6F0]/30">
-          <Wand2 className="w-12 h-12 mx-auto mb-4 opacity-30" />
-          <p className="font-medium text-[#F8F6F0]/50 mb-1">No stories yet</p>
-          <p className="text-sm">Click "New Story" to forge your first narrative.</p>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-24 text-[#F8F6F0]/30">
+          <Wand2 className="w-16 h-16 mx-auto mb-5 opacity-20" />
+          <p className="font-medium text-[#F8F6F0]/50 text-xl mb-2">
+            {projects.length === 0 ? 'No stories yet' : 'No stories match your filters'}
+          </p>
+          <p className="text-base">
+            {projects.length === 0
+              ? 'Click "New Story" to forge your first narrative.'
+              : 'Try adjusting your search or filters.'}
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {projects.map(p => {
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {filtered.map(p => {
             const s = stats[p.id]
+            const progress = s ? Math.min(100, Math.round((s.sceneCount / 20) * 100)) : 0
             return (
               <div
                 key={p.id}
-                onClick={() => setDetailProject(p)}
-                className="group relative bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-2xl p-5 cursor-pointer hover:border-[#F5A623]/50 hover:bg-[#2D2D5E]/60 transition-all"
+                className="group bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-2xl p-6 hover:border-[#F5A623]/50 hover:bg-[#2D2D5E]/60 transition-all flex flex-col gap-4"
               >
-                {/* Genre badge */}
-                <div className="flex items-center justify-between mb-3">
-                  <Badge variant="gold" className="text-[10px]">{p.genre}</Badge>
-                  <Badge variant="default" className="text-[10px] flex items-center gap-1">
-                    <Clock className="w-2.5 h-2.5" />
-                    {formatDate(p.updated_at)}
-                  </Badge>
+                {/* Top row */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="gold" className="text-xs">{p.genre}</Badge>
+                    <Badge variant={STATUS_VARIANT[p.status] ?? 'default'} className="text-xs">
+                      {STATUS_LABEL[p.status] ?? p.status}
+                    </Badge>
+                  </div>
+                  <span className="text-xs text-[#F8F6F0]/30 flex items-center gap-1 shrink-0">
+                    <Clock className="w-3 h-3" /> {formatDate(p.updated_at)}
+                  </span>
                 </div>
 
                 {/* Title */}
-                <h3 className="font-bold text-[#F8F6F0] text-base leading-snug mb-1 group-hover:text-[#F5A623] transition-colors">
-                  {p.title}
-                </h3>
-                <p className="text-[#F8F6F0]/40 text-xs mb-4">{p.tone}</p>
+                <div>
+                  <h3 className="font-bold text-[#F8F6F0] text-xl leading-snug group-hover:text-[#F5A623] transition-colors">
+                    {p.title}
+                  </h3>
+                  <p className="text-[#F8F6F0]/40 text-sm mt-1">{p.tone}</p>
+                </div>
 
-                {/* Stats row */}
+                {/* Stats */}
                 {s ? (
-                  <div className="flex flex-wrap gap-3 mb-4">
+                  <div className="flex flex-wrap gap-4">
                     <StatPill icon={Film}      value={s.sceneCount}     label="scenes" />
                     <StatPill icon={Users}     value={s.characterCount} label="chars" />
                     <StatPill icon={GitBranch} value={s.branchCount}    label="branches" />
                     <StatPill icon={Trophy}    value={s.endingCount}    label="endings" />
                   </div>
                 ) : (
-                  <div className="h-5 mb-4 flex items-center">
-                    <div className="w-24 h-3 bg-[#3D3D7A]/60 rounded-full animate-pulse" />
+                  <div className="flex gap-3">
+                    {[64, 48, 56, 40].map(w => (
+                      <div key={w} className="h-4 rounded-full bg-[#3D3D7A]/60 animate-pulse" style={{ width: w }} />
+                    ))}
                   </div>
                 )}
 
+                {/* Progress */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-2 bg-[#3D3D7A]/40 rounded-full overflow-hidden">
+                    <div className="h-full bg-[#F5A623]/70 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                  </div>
+                  <span className="text-xs text-[#F8F6F0]/30 shrink-0 w-8 text-right">{progress}%</span>
+                </div>
+
                 {/* Actions */}
-                <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                <div className="flex gap-2 mt-auto">
+                  {onViewDetail && (
+                    <Button
+                      variant="secondary"
+                      size="md"
+                      className="text-sm"
+                      onClick={() => onViewDetail(p)}
+                    >
+                      Details
+                    </Button>
+                  )}
                   <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 text-xs"
-                    onClick={() => setDetailProject(p)}
-                  >
-                    View Details
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1 text-xs"
+                    variant="primary"
+                    size="md"
+                    className="flex-1 text-sm"
                     loading={resuming === p.id}
                     onClick={() => handleResume(p.id)}
                   >
-                    Resume
+                    Resume →
                   </Button>
                 </div>
               </div>
             )
           })}
         </div>
-      )}
-
-      {/* Project Detail Modal */}
-      {detailProject && (
-        <ProjectDetailDrawer
-          project={detailProject}
-          onClose={() => setDetailProject(null)}
-        />
       )}
     </div>
   )
