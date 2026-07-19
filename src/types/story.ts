@@ -1,16 +1,24 @@
 // Domain types for StoryForge
 
+export type RelationType = 'Ally' | 'Enemy' | 'Family' | 'Love' | 'Rival' | 'Mentor'
+
+export interface CharacterRelation {
+  targetId: string
+  type: RelationType
+  description?: string
+}
+
 export interface Character {
   id?: string
   name: string
-  role: 'protagonist' | 'antagonist' | 'supporting'
+  role: 'protagonist' | 'antagonist' | 'supporting' | 'minor'
   description: string
   traits: string[]
+  biography?: string
+  customFields?: Record<string, string>
+  relations?: CharacterRelation[]
   portraitUrl?: string          // optional, defaults to initials placeholder
   charGuardrails?: string[]     // per-character behavior rules
-  // optional relationship fields
-  relatedTo?: string[]
-  relationshipLabel?: string
 }
 
 export interface CharacterGuardrail {
@@ -76,6 +84,7 @@ export interface SceneWithChoices extends Scene {
 }
 
 export type AppStep = 'dashboard' | 'setup' | 'play' | 'review'
+export type PlayTab = 'play' | 'scenes' | 'branches'
 
 export interface GenerateScenePayload {
   projectId: string
