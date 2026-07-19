@@ -9,12 +9,11 @@ import {
   loadChoicesForScene,
   loadStoryState,
 } from '@/services/storyService'
-import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ProjectDetailDrawer } from './ProjectDetailDrawer'
 import {
-  Plus, Clock, Wand2, GitBranch, Users, Film, Trophy,
-  BookOpen, BarChart3, Layers, Zap, Import, LayoutTemplate,
+  Plus, Clock, Wand2, GitBranch, Users, Film,
+  BookOpen, BarChart3, Layers, Zap,
   ArrowRight, Activity,
 } from 'lucide-react'
 import type { ProjectStats } from '@/types/story'
@@ -29,8 +28,6 @@ interface ProjectRow {
   updated_at: string
 }
 
-// ── Format helpers ─────────────────────────────────────────────────────────────
-
 function formatDate(iso: string) {
   const d = new Date(iso)
   const now = new Date()
@@ -41,42 +38,28 @@ function formatDate(iso: string) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-// ── Stat card ──────────────────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, value, label, sub }: { icon: React.ElementType; value: number | string; label: string; sub?: string }) {
+// ── Large stat card ───────────────────────────────────────────────────────────
+function StatCard({
+  icon: Icon, value, label, sub,
+}: {
+  icon: React.ElementType
+  value: number | string
+  label: string
+  sub?: string
+}) {
   return (
-    <div className="flex-1 min-w-0 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="w-8 h-8 rounded-lg bg-[#F5A623]/10 flex items-center justify-center">
-          <Icon className="w-4 h-4 text-[#F5A623]" />
-        </div>
+    <div className="flex-1 bg-[#2D2D5E]/50 border border-[#3D3D7A] rounded-2xl p-7 flex flex-col gap-4">
+      <div className="w-12 h-12 rounded-xl bg-[#F5A623]/12 border border-[#F5A623]/25 flex items-center justify-center">
+        <Icon className="w-6 h-6 text-[#F5A623]" />
       </div>
-      <p className="text-2xl font-bold text-[#F8F6F0]">{value}</p>
-      <p className="text-xs text-[#F8F6F0]/50 mt-0.5">{label}</p>
-      {sub && <p className="text-[10px] text-[#F5A623]/60 mt-1">{sub}</p>}
+      <div>
+        <p className="text-4xl font-bold text-[#F8F6F0] leading-none">{value}</p>
+        <p className="text-sm text-[#F8F6F0]/50 mt-2">{label}</p>
+        {sub && <p className="text-xs text-[#F5A623]/60 mt-1">{sub}</p>}
+      </div>
     </div>
   )
 }
-
-// ── Quick action button ────────────────────────────────────────────────────────
-
-function QuickAction({ icon: Icon, label, onClick, primary }: { icon: React.ElementType; label: string; onClick?: () => void; primary?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer border ${
-        primary
-          ? 'bg-[#F5A623] text-[#1A1A3E] border-[#F5A623] hover:bg-[#F5A623]/90'
-          : 'bg-[#2D2D5E]/50 text-[#F8F6F0]/70 border-[#3D3D7A] hover:bg-[#2D2D5E]/80 hover:text-[#F8F6F0]'
-      }`}
-    >
-      <Icon className="w-4 h-4" />
-      {label}
-    </button>
-  )
-}
-
-// ── DashboardTab ──────────────────────────────────────────────────────────────
 
 export function DashboardTab() {
   const { user } = useAuth()
@@ -123,134 +106,118 @@ export function DashboardTab() {
       }
       if (storyState) dispatch({ type: 'SET_STORY_STATE', payload: storyState })
       dispatch({ type: 'SET_STEP', payload: scenes.length > 0 ? 'play' : 'setup' })
-    } catch {
-      // ignore – user stays on dashboard
-    } finally {
-      setResuming(null)
-    }
+    } catch { /* stay on dashboard */ }
+    finally { setResuming(null) }
   }
 
-  // ── Aggregate stats ──────────────────────────────────────────────────────────
   const totalScenes = Object.values(stats).reduce((s, p) => s + p.sceneCount, 0)
   const totalChars  = Object.values(stats).reduce((s, p) => s + p.characterCount, 0)
   const activeCount = projects.filter(p => p.status === 'active').length
   const recentProjects = projects.slice(0, 5)
 
   return (
-    <div className="px-8 py-8 max-w-4xl mx-auto">
+    <div className="px-10 py-10 w-full">
 
-      {/* ── Welcome ──────────────────────────────────────────────────────────── */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[#F8F6F0] mb-1">Dashboard</h1>
-        <p className="text-[#F8F6F0]/40 text-sm">
-          Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}.
-        </p>
-      </div>
-
-      {/* ── Stats row ────────────────────────────────────────────────────────── */}
-      <div className="flex gap-4 mb-8 flex-wrap">
-        <StatCard icon={BookOpen}  value={projects.length} label="Total Stories"    sub={`${activeCount} active`} />
-        <StatCard icon={Users}     value={totalChars}      label="Total Characters" />
-        <StatCard icon={Layers}    value={activeCount}     label="Active Projects"  />
-        <StatCard icon={Film}      value={totalScenes}     label="Scenes Written"   />
-      </div>
-
-      {/* ── Quick actions ─────────────────────────────────────────────────────── */}
-      <div className="mb-8">
-        <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-3">Quick Start</p>
-        <div className="flex flex-wrap gap-2">
-          <QuickAction
-            icon={Plus}
-            label="New Story"
-            primary
-            onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })}
-          />
-          <QuickAction icon={Import}         label="Import"    />
-          <QuickAction icon={LayoutTemplate} label="Templates" />
-          <QuickAction icon={Zap}            label="AI Assist" />
+      {/* ── Welcome ───────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h1 className="text-3xl font-bold text-[#F8F6F0] mb-1">Dashboard</h1>
+          <p className="text-[#F8F6F0]/40">
+            Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}.
+          </p>
         </div>
+        <button
+          onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })}
+          className="flex items-center gap-2 px-5 py-3 bg-[#F5A623] text-[#1A1A3E] rounded-xl font-semibold hover:bg-[#F5A623]/90 transition-colors cursor-pointer text-sm"
+        >
+          <Plus className="w-4 h-4" /> New Story
+        </button>
       </div>
 
-      {/* ── Bottom two-column ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Stats row (full-width, evenly spaced) ─────────────────────────────── */}
+      <div className="flex gap-5 mb-10">
+        <StatCard icon={BookOpen} value={projects.length} label="Total Stories"    sub={`${activeCount} active`} />
+        <StatCard icon={Users}    value={totalChars}      label="Total Characters" />
+        <StatCard icon={Layers}   value={activeCount}     label="Active Projects"  />
+        <StatCard icon={Film}     value={totalScenes}     label="Scenes Written"   />
+      </div>
+
+      {/* ── Two-column content ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-7">
 
         {/* Recent Stories */}
         <div className="bg-[#2D2D5E]/30 border border-[#3D3D7A] rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[#3D3D7A]">
-            <p className="text-sm font-semibold text-[#F8F6F0]/80 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-[#F5A623]" /> Recent Stories
+          <div className="flex items-center justify-between px-6 py-5 border-b border-[#3D3D7A]">
+            <p className="text-base font-semibold text-[#F8F6F0]/90 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-[#F5A623]" /> Recent Stories
             </p>
             <button
-              className="text-xs text-[#F5A623]/60 hover:text-[#F5A623] transition-colors cursor-pointer"
-              onClick={() => {/* StoriesTab switch handled by sidebar */}}
+              className="text-sm text-[#F5A623]/60 hover:text-[#F5A623] transition-colors cursor-pointer"
+              onClick={() => {}}
             >
               View all →
             </button>
           </div>
+
           <div className="divide-y divide-[#3D3D7A]/50">
             {loading ? (
-              <div className="flex justify-center py-10">
-                <div className="w-6 h-6 rounded-full border-2 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
+              <div className="flex justify-center py-12">
+                <div className="w-7 h-7 rounded-full border-2 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
               </div>
             ) : recentProjects.length === 0 ? (
-              <div className="text-center py-10 text-[#F8F6F0]/25">
-                <Wand2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No stories yet</p>
+              <div className="text-center py-14 text-[#F8F6F0]/25">
+                <Wand2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-base">No stories yet</p>
+                <p className="text-sm mt-1 text-[#F8F6F0]/20">Click "New Story" above to begin</p>
               </div>
             ) : recentProjects.map(p => {
               const s = stats[p.id]
               const progress = s ? Math.min(100, Math.round((s.sceneCount / 20) * 100)) : 0
               return (
-                <div key={p.id} className="px-5 py-3 hover:bg-[#2D2D5E]/40 transition-colors">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                <div key={p.id} className="px-6 py-4 hover:bg-[#2D2D5E]/40 transition-colors">
+                  <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#F8F6F0] truncate">{p.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <Badge variant="gold" className="text-[9px]">{p.genre}</Badge>
-                        <span className="text-[10px] text-[#F8F6F0]/30 flex items-center gap-0.5">
-                          <Clock className="w-2.5 h-2.5" /> {formatDate(p.updated_at)}
+                      <p className="text-base font-medium text-[#F8F6F0] truncate">{p.title}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="gold" className="text-[10px]">{p.genre}</Badge>
+                        <span className="text-xs text-[#F8F6F0]/30 flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {formatDate(p.updated_at)}
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {s && (
-                        <>
-                          <span className="text-[10px] text-[#F8F6F0]/30 flex items-center gap-0.5">
-                            <GitBranch className="w-2.5 h-2.5" />{s.branchCount}
-                          </span>
-                          <span className="text-[10px] text-[#F8F6F0]/30 flex items-center gap-0.5">
-                            <Users className="w-2.5 h-2.5" />{s.characterCount}
-                          </span>
-                        </>
-                      )}
-                    </div>
+                    {s && (
+                      <div className="flex items-center gap-3 shrink-0 text-xs text-[#F8F6F0]/30">
+                        <span className="flex items-center gap-1">
+                          <GitBranch className="w-3.5 h-3.5" />{s.branchCount}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3.5 h-3.5" />{s.characterCount}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   {/* Progress bar */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="flex-1 h-1 bg-[#3D3D7A]/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#F5A623]/60 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="flex-1 h-1.5 bg-[#3D3D7A]/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-[#F5A623]/60 rounded-full" style={{ width: `${progress}%` }} />
                     </div>
-                    <span className="text-[10px] text-[#F8F6F0]/30">{progress}%</span>
+                    <span className="text-xs text-[#F8F6F0]/30 shrink-0">{progress}%</span>
                   </div>
-                  {/* Actions */}
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-2">
                     <button
                       onClick={() => handleResume(p.id)}
                       disabled={resuming === p.id}
-                      className="flex-1 flex items-center justify-center gap-1 text-xs px-2 py-1 bg-[#F5A623] text-[#1A1A3E] rounded-lg font-medium hover:bg-[#F5A623]/90 transition-colors cursor-pointer disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1.5 text-sm px-3 py-2 bg-[#F5A623] text-[#1A1A3E] rounded-lg font-semibold hover:bg-[#F5A623]/90 transition-colors cursor-pointer disabled:opacity-50"
                     >
-                      {resuming === p.id ? (
-                        <div className="w-3 h-3 border-2 border-[#1A1A3E]/40 border-t-[#1A1A3E] rounded-full animate-spin" />
-                      ) : (
-                        <>Continue <ArrowRight className="w-3 h-3" /></>
-                      )}
+                      {resuming === p.id
+                        ? <div className="w-3.5 h-3.5 border-2 border-[#1A1A3E]/40 border-t-[#1A1A3E] rounded-full animate-spin" />
+                        : <><span>Continue</span><ArrowRight className="w-3.5 h-3.5" /></>}
                     </button>
                     <button
                       onClick={() => setDetailProject(p)}
-                      className="flex items-center gap-1 text-xs px-2 py-1 bg-[#2D2D5E]/60 text-[#F8F6F0]/50 border border-[#3D3D7A] rounded-lg hover:text-[#F8F6F0]/80 hover:border-[#F5A623]/30 transition-colors cursor-pointer"
-                      title="Story map"
+                      className="flex items-center gap-1.5 text-sm px-3 py-2 bg-[#2D2D5E]/60 text-[#F8F6F0]/50 border border-[#3D3D7A] rounded-lg hover:text-[#F8F6F0]/80 hover:border-[#F5A623]/30 transition-colors cursor-pointer"
                     >
-                      <BarChart3 className="w-3 h-3" />
+                      <BarChart3 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -259,28 +226,28 @@ export function DashboardTab() {
           </div>
         </div>
 
-        {/* Activity + AI Suggestions */}
-        <div className="flex flex-col gap-4">
+        {/* Right column */}
+        <div className="flex flex-col gap-7">
 
           {/* Recent Activity */}
-          <div className="bg-[#2D2D5E]/30 border border-[#3D3D7A] rounded-2xl overflow-hidden flex-1">
-            <div className="flex items-center gap-2 px-5 py-4 border-b border-[#3D3D7A]">
-              <Activity className="w-4 h-4 text-[#F5A623]" />
-              <p className="text-sm font-semibold text-[#F8F6F0]/80">Recent Activity</p>
+          <div className="bg-[#2D2D5E]/30 border border-[#3D3D7A] rounded-2xl overflow-hidden">
+            <div className="flex items-center gap-2.5 px-6 py-5 border-b border-[#3D3D7A]">
+              <Activity className="w-5 h-5 text-[#F5A623]" />
+              <p className="text-base font-semibold text-[#F8F6F0]/90">Recent Activity</p>
             </div>
-            <div className="px-5 py-4">
+            <div className="px-6 py-5">
               {projects.length === 0 ? (
-                <p className="text-xs text-[#F8F6F0]/25 text-center py-4">No activity yet.</p>
+                <p className="text-sm text-[#F8F6F0]/25 text-center py-6">No activity yet.</p>
               ) : (
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-4">
                   {recentProjects.slice(0, 4).map(p => (
-                    <div key={p.id} className="flex items-center gap-3">
-                      <div className="w-7 h-7 rounded-lg bg-[#F5A623]/10 flex items-center justify-center shrink-0">
-                        <BookOpen className="w-3.5 h-3.5 text-[#F5A623]/70" />
+                    <div key={p.id} className="flex items-center gap-4">
+                      <div className="w-9 h-9 rounded-xl bg-[#F5A623]/10 flex items-center justify-center shrink-0">
+                        <BookOpen className="w-4 h-4 text-[#F5A623]/70" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs text-[#F8F6F0]/70 truncate">{p.title}</p>
-                        <p className="text-[10px] text-[#F8F6F0]/30">Updated {formatDate(p.updated_at)}</p>
+                        <p className="text-sm text-[#F8F6F0]/80 truncate font-medium">{p.title}</p>
+                        <p className="text-xs text-[#F8F6F0]/30 mt-0.5">Updated {formatDate(p.updated_at)}</p>
                       </div>
                     </div>
                   ))}
@@ -291,20 +258,21 @@ export function DashboardTab() {
 
           {/* AI Suggestions */}
           <div className="bg-[#2D2D5E]/30 border border-[#3D3D7A] rounded-2xl overflow-hidden">
-            <div className="flex items-center gap-2 px-5 py-4 border-b border-[#3D3D7A]">
-              <Zap className="w-4 h-4 text-[#F5A623]" />
-              <p className="text-sm font-semibold text-[#F8F6F0]/80">AI Suggestions</p>
+            <div className="flex items-center gap-2.5 px-6 py-5 border-b border-[#3D3D7A]">
+              <Zap className="w-5 h-5 text-[#F5A623]" />
+              <p className="text-base font-semibold text-[#F8F6F0]/90">AI Suggestions</p>
             </div>
-            <div className="px-5 py-4 flex flex-col gap-2">
+            <div className="px-6 py-5 flex flex-col gap-3">
               {[
                 'Try a Mystery set in a Victorian steampunk city',
                 'Add an unreliable narrator to your next story',
                 'Explore a moral dilemma with no clean resolution',
+                'Write a story where the antagonist is sympathetic',
               ].map(s => (
                 <button
                   key={s}
                   onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })}
-                  className="text-left text-xs px-3 py-2.5 bg-[#1A1A3E]/50 border border-[#3D3D7A] rounded-xl text-[#F8F6F0]/60 hover:border-[#F5A623]/30 hover:text-[#F8F6F0]/80 transition-colors cursor-pointer"
+                  className="text-left text-sm px-4 py-3 bg-[#1A1A3E]/50 border border-[#3D3D7A] rounded-xl text-[#F8F6F0]/60 hover:border-[#F5A623]/30 hover:text-[#F8F6F0]/80 transition-colors cursor-pointer"
                 >
                   ✦ {s}
                 </button>
@@ -314,7 +282,7 @@ export function DashboardTab() {
         </div>
       </div>
 
-      {/* ── Project Detail Modal ──────────────────────────────────────────────── */}
+      {/* Project Detail Modal */}
       {detailProject && (
         <ProjectDetailDrawer
           project={detailProject}
