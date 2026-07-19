@@ -163,8 +163,8 @@ function CharactersTab({
   const [selected, setSelected] = useState<Character | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const roleOrder = { protagonist: 0, antagonist: 1, supporting: 2 } as const
-  const sorted = [...characters].sort((a, b) => roleOrder[a.role] - roleOrder[b.role])
+  const roleOrder: Record<string, number> = { protagonist: 0, antagonist: 1, supporting: 2, minor: 3 }
+  const sorted = [...characters].sort((a, b) => (roleOrder[a.role] ?? 3) - (roleOrder[b.role] ?? 3))
 
   return (
     <div className="flex flex-col gap-3">

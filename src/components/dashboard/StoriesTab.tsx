@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ProjectDetailDrawer } from './ProjectDetailDrawer'
-import { BookOpen, Plus, Clock, Wand2, GitBranch, Users, Film, Trophy } from 'lucide-react'
+import { Plus, Clock, Wand2, GitBranch, Users, Film, Trophy } from 'lucide-react'
 import type { ProjectStats } from '@/types/story'
 
 interface ProjectRow {

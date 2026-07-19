@@ -46,6 +46,7 @@ const ROLE_TRAIT_SUGGESTIONS: Record<string, string[]> = {
   protagonist: ['Brave', 'Curious', 'Stubborn', 'Empathetic', 'Resourceful', 'Idealistic', 'Determined', 'Conflicted'],
   antagonist:  ['Calculating', 'Charismatic', 'Ruthless', 'Intelligent', 'Manipulative', 'Ambitious', 'Patient', 'Visionary'],
   supporting:  ['Loyal', 'Witty', 'Cautious', 'Knowledgeable', 'Sarcastic', 'Gentle', 'Reliable', 'Observant'],
+  minor:       ['Nervous', 'Friendly', 'Suspicious', 'Quiet', 'Talkative', 'Helpful', 'Indifferent', 'Secretive'],
 }
 
 // ── AI helpers ────────────────────────────────────────────────────────────────
@@ -284,6 +285,7 @@ function CharacterForm({ initial, onSave, onCancel, isEdit }: CharFormProps) {
           <option value="protagonist">Protagonist</option>
           <option value="antagonist">Antagonist</option>
           <option value="supporting">Supporting</option>
+          <option value="minor">Minor</option>
         </select>
       </div>
 
