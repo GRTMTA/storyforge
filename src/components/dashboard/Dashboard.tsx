@@ -197,12 +197,11 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* ── Project Detail Drawer ─────────────────────────────────────────── */}
+      {/* ── Project Detail Modal ──────────────────────────────────────────── */}
       {detailProject && (
         <ProjectDetailDrawer
           project={detailProject}
           onClose={() => setDetailProject(null)}
-          onResume={() => { setDetailProject(null); handleResume(detailProject.id) }}
         />
       )}
     </div>

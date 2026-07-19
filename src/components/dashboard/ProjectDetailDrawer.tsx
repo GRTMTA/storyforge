@@ -13,16 +13,15 @@ import { GitBranchMap } from './GitBranchMap'
 import type { Character, CharacterGuardrail, ProjectSetup, Scene } from '@/types/story'
 import {
   X, Users, GitBranch, Shield, BookOpen, ChevronDown, ChevronRight,
-  Trash2, Plus, User, AlertTriangle,
+  Trash2, Plus, User, AlertTriangle, Settings,
 } from 'lucide-react'
 
 interface Props {
   project: { id: string; title: string; genre: string; tone: string }
   onClose: () => void
-  onResume: () => void
 }
 
-type Tab = 'overview' | 'characters' | 'branches' | 'guardrails'
+type Tab = 'overview' | 'characters' | 'branches' | 'guardrails' | 'settings'
 
 // ── Character Detail Modal ────────────────────────────────────────────────────
 function CharacterModal({
@@ -270,8 +269,38 @@ function GuardrailsTab({ guardrails }: { guardrails: string[] }) {
   )
 }
 
-// ── Main Drawer ───────────────────────────────────────────────────────────────
-export function ProjectDetailDrawer({ project, onClose, onResume }: Props) {
+// ── Settings Tab ─────────────────────────────────────────────────────────────
+function SettingsTab({ project }: { project: { id: string; title: string; genre: string; tone: string } }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="p-4 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl">
+        <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-3">Project Info</p>
+        <div className="flex flex-col gap-2">
+          {[
+            { label: 'Project ID', value: project.id },
+            { label: 'Genre',      value: project.genre },
+            { label: 'Tone',       value: project.tone },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between">
+              <span className="text-xs text-[#F8F6F0]/40">{label}</span>
+              <span className="text-xs text-[#F8F6F0]/70 font-mono">{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="p-4 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl">
+        <p className="text-xs font-semibold text-[#F8F6F0]/40 uppercase tracking-wide mb-2">Danger Zone</p>
+        <p className="text-xs text-[#F8F6F0]/30 mb-3">Destructive actions cannot be undone.</p>
+        <Button variant="ghost" size="sm" className="text-red-400/70 hover:text-red-400 border border-red-500/20 hover:border-red-500/40" disabled>
+          Delete Project
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Modal ────────────────────────────────────────────────────────────────
+export function ProjectDetailDrawer({ project, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('overview')
   const [setup, setSetup] = useState<ProjectSetup | null>(null)
   const [characters, setCharacters] = useState<Character[]>([])
@@ -294,19 +323,20 @@ export function ProjectDetailDrawer({ project, onClose, onResume }: Props) {
   }, [project.id])
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'overview', label: 'Overview', icon: BookOpen },
-    { id: 'characters', label: `Characters${characters.length > 0 ? ` (${characters.length})` : ''}`, icon: Users },
-    { id: 'branches', label: `Branches${scenes.length > 0 ? ` (${scenes.length})` : ''}`, icon: GitBranch },
-    { id: 'guardrails', label: 'Guardrails', icon: Shield },
+    { id: 'overview',    label: 'Overview',                                                           icon: BookOpen  },
+    { id: 'characters',  label: `Characters${characters.length > 0 ? ` (${characters.length})` : ''}`, icon: Users    },
+    { id: 'branches',    label: `Branches${scenes.length > 0 ? ` (${scenes.length})` : ''}`,          icon: GitBranch },
+    { id: 'guardrails',  label: 'Guardrails',                                                          icon: Shield    },
+    { id: 'settings',    label: 'Settings',                                                            icon: Settings  },
   ]
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop */}
-      <div className="flex-1 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Panel */}
-      <div className="w-full max-w-2xl bg-[#1A1A3E] border-l border-[#3D3D7A] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      {/* Modal */}
+      <div
+        className="w-[75vw] h-[75vh] min-w-[320px] min-h-[400px] bg-[#1A1A3E] border border-[#3D3D7A] rounded-2xl flex flex-col shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[#3D3D7A] shrink-0">
@@ -317,12 +347,9 @@ export function ProjectDetailDrawer({ project, onClose, onResume }: Props) {
             </div>
             <h2 className="text-xl font-bold text-[#F8F6F0] truncate">{project.title}</h2>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button size="sm" onClick={onResume}>Resume →</Button>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-[#F8F6F0]/40 hover:text-[#F8F6F0] hover:bg-[#2D2D5E] transition-colors cursor-pointer">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[#F8F6F0]/40 hover:text-[#F8F6F0] hover:bg-[#2D2D5E] transition-colors cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Tabs */}
@@ -386,12 +413,16 @@ export function ProjectDetailDrawer({ project, onClose, onResume }: Props) {
               {tab === 'branches' && (
                 <GitBranchMap
                   scenes={scenes}
-                  onRestore={() => { onResume() }}
+                  onRestore={onClose}
                 />
               )}
 
               {tab === 'guardrails' && setup && (
                 <GuardrailsTab guardrails={setup.guardrails} />
+              )}
+
+              {tab === 'settings' && (
+                <SettingsTab project={project} />
               )}
             </>
           )}
