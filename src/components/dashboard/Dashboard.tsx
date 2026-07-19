@@ -4,7 +4,7 @@ import { useStory } from '@/contexts/StoryContext'
 import { listProjects, loadProjectStats, loadProjectSetup, loadScenes, loadChoicesForScene, loadStoryState } from '@/services/storyService'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { ProjectDetailDrawer } from './ProjectDetailDrawer'
+import { ProjectDetailPage } from './ProjectDetailDrawer'
 import { BookOpen, Plus, Clock, Wand2, GitBranch, Users, Film, Trophy } from 'lucide-react'
 import type { ProjectStats } from '@/types/story'
 
@@ -197,12 +197,14 @@ export function Dashboard() {
         )}
       </div>
 
-      {/* ── Project Detail Modal ──────────────────────────────────────────── */}
+      {/* ── Project Detail ────────────────────────────────────────────────── */}
       {detailProject && (
-        <ProjectDetailDrawer
-          project={detailProject}
-          onClose={() => setDetailProject(null)}
-        />
+        <div className="fixed inset-0 z-50 bg-[#1A1A3E] overflow-y-auto">
+          <ProjectDetailPage
+            project={detailProject}
+            onBack={() => setDetailProject(null)}
+          />
+        </div>
       )}
     </div>
   )

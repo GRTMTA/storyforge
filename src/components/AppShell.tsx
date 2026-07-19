@@ -5,6 +5,7 @@ import { AuthScreen } from '@/components/auth/AuthScreen'
 import { DashboardTab } from '@/components/dashboard/DashboardTab'
 import { StoriesTab } from '@/components/dashboard/StoriesTab'
 import { SettingsTab } from '@/components/dashboard/SettingsTab'
+import { ProjectDetailPage } from '@/components/dashboard/ProjectDetailDrawer'
 import { SetupStep } from '@/components/setup/SetupStep'
 import { PlayStep } from '@/components/play/PlayStep'
 import { ScenesTab } from '@/components/play/ScenesTab'
@@ -16,6 +17,14 @@ import {
   Wand2, List, GitBranch, BarChart2,
 } from 'lucide-react'
 import type { PlayTab } from '@/types/story'
+
+interface DetailProject {
+  id: string
+  title: string
+  genre: string
+  tone: string
+  status: string
+}
 
 type SidebarTab = 'dashboard' | 'stories' | 'settings'
 /** expanded = always wide open  |  collapsed = icon-only  |  hover = expand on hover */
@@ -251,6 +260,7 @@ export function AppShell() {
   const { state, dispatch } = useStory()
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('dashboard')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('hover')
+  const [detailProject, setDetailProject] = useState<DetailProject | null>(null)
 
   const cycleSidebarMode = () => {
     setSidebarMode(m =>
@@ -312,12 +322,22 @@ export function AppShell() {
         {state.step === 'play' && state.playTab === 'branches' && <BranchesTab />}
 
         {/* Dashboard steps */}
-        {state.step === 'dashboard' && (
+        {state.step === 'dashboard' && !detailProject && (
           <>
             {sidebarTab === 'dashboard' && <DashboardTab />}
-            {sidebarTab === 'stories'   && <StoriesTab />}
+            {sidebarTab === 'stories'   && (
+              <StoriesTab onViewDetail={p => setDetailProject(p)} />
+            )}
             {sidebarTab === 'settings'  && <SettingsTab />}
           </>
+        )}
+
+        {/* Story detail full page */}
+        {state.step === 'dashboard' && detailProject && (
+          <ProjectDetailPage
+            project={detailProject}
+            onBack={() => setDetailProject(null)}
+          />
         )}
 
         {/* Breadcrumb overlay while in story workflow */}
