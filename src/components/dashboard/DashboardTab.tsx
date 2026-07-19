@@ -10,10 +10,9 @@ import {
   loadStoryState,
 } from '@/services/storyService'
 import { Badge } from '@/components/ui/Badge'
-import { ProjectDetailDrawer } from './ProjectDetailDrawer'
 import {
-  Plus, Clock, Wand2, GitBranch, Users, Film,
-  BookOpen, BarChart3, Layers, Zap,
+  Clock, Wand2, GitBranch, Users, Film,
+  BookOpen, Layers, Zap,
   ArrowRight, Activity,
 } from 'lucide-react'
 import type { ProjectStats } from '@/types/story'
@@ -68,7 +67,6 @@ export function DashboardTab() {
   const [stats, setStats]         = useState<Record<string, ProjectStats>>({})
   const [loading, setLoading]     = useState(true)
   const [resuming, setResuming]   = useState<string | null>(null)
-  const [detailProject, setDetailProject] = useState<ProjectRow | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -119,19 +117,11 @@ export function DashboardTab() {
     <div className="px-10 py-10 w-full">
 
       {/* ── Welcome ───────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-10">
-        <div>
-          <h1 className="text-3xl font-bold text-[#F8F6F0] mb-1">Dashboard</h1>
-          <p className="text-[#F8F6F0]/40">
-            Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}.
-          </p>
-        </div>
-        <button
-          onClick={() => dispatch({ type: 'SET_STEP', payload: 'setup' })}
-          className="flex items-center gap-2 px-5 py-3 bg-[#F5A623] text-[#1A1A3E] rounded-xl font-semibold hover:bg-[#F5A623]/90 transition-colors cursor-pointer text-sm"
-        >
-          <Plus className="w-4 h-4" /> New Story
-        </button>
+      <div className="mb-10">
+        <h1 className="text-3xl font-bold text-[#F8F6F0] mb-1">Dashboard</h1>
+        <p className="text-[#F8F6F0]/40">
+          Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}.
+        </p>
       </div>
 
       {/* ── Stats row (full-width, evenly spaced) ─────────────────────────────── */}
@@ -168,7 +158,7 @@ export function DashboardTab() {
               <div className="text-center py-14 text-[#F8F6F0]/25">
                 <Wand2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-base">No stories yet</p>
-                <p className="text-sm mt-1 text-[#F8F6F0]/20">Click "New Story" above to begin</p>
+                <p className="text-sm mt-1 text-[#F8F6F0]/20">Go to Stories to create your first.</p>
               </div>
             ) : recentProjects.map(p => {
               const s = stats[p.id]
@@ -212,12 +202,6 @@ export function DashboardTab() {
                       {resuming === p.id
                         ? <div className="w-3.5 h-3.5 border-2 border-[#1A1A3E]/40 border-t-[#1A1A3E] rounded-full animate-spin" />
                         : <><span>Continue</span><ArrowRight className="w-3.5 h-3.5" /></>}
-                    </button>
-                    <button
-                      onClick={() => setDetailProject(p)}
-                      className="flex items-center gap-1.5 text-sm px-3 py-2 bg-[#2D2D5E]/60 text-[#F8F6F0]/50 border border-[#3D3D7A] rounded-lg hover:text-[#F8F6F0]/80 hover:border-[#F5A623]/30 transition-colors cursor-pointer"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -282,13 +266,6 @@ export function DashboardTab() {
         </div>
       </div>
 
-      {/* Project Detail Modal */}
-      {detailProject && (
-        <ProjectDetailDrawer
-          project={detailProject}
-          onClose={() => setDetailProject(null)}
-        />
-      )}
     </div>
   )
 }
