@@ -15,7 +15,7 @@ alter table public.scenes
 
 create or replace function public.match_scenes(
   query_embedding extensions.vector(1536),
-  filter_project_id uuid,
+  project_id uuid,
   match_threshold float default 0.65,
   match_count int default 5
 )
@@ -25,7 +25,7 @@ set search_path = public, extensions
 as $$
   select s.id, s.content, 1 - (s.embedding <=> query_embedding) as similarity
   from public.scenes s
-  where s.project_id = filter_project_id
+  where s.project_id = match_scenes.project_id
     and s.embedding is not null
     and 1 - (s.embedding <=> query_embedding) >= match_threshold
   order by s.embedding <=> query_embedding
