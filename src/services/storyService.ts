@@ -227,7 +227,19 @@ export async function generateScene(
   const { data, error } = await supabase.functions.invoke<GenerateSceneResponse>('generate-scene', {
     body: { projectId, setup, parentSceneId, choiceLabel, storyState, branchId },
   })
-  if (error || !data) throw new Error(error?.message ?? 'Edge Function error')
+  if (error) {
+    const context = (error as { context?: Response }).context
+    if (context) {
+      try {
+        const payload = await context.clone().json() as { error?: string }
+        if (payload.error) throw new Error(payload.error)
+      } catch (cause) {
+        if (cause instanceof Error && cause.message !== 'Unexpected end of JSON input') throw cause
+      }
+    }
+    throw new Error(error.message)
+  }
+  if (!data) throw new Error('Scene generation returned no data')
   return data
 }
 

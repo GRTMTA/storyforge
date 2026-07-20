@@ -22,15 +22,15 @@ create or replace function public.match_scenes(
 returns table (id uuid, content text, similarity float)
 language sql stable
 set search_path = public, extensions
-as $$
+as '
   select s.id, s.content, 1 - (s.embedding <=> query_embedding) as similarity
   from public.scenes s
   where s.project_id = match_scenes.project_id
     and s.embedding is not null
     and 1 - (s.embedding <=> query_embedding) >= match_threshold
   order by s.embedding <=> query_embedding
-  limit match_count;
-$$;
+  limit match_count
+';
 
 create or replace function public.match_characters(
   query_embedding extensions.vector(1536),
@@ -40,13 +40,13 @@ create or replace function public.match_characters(
 returns table (id uuid, similarity float)
 language sql stable
 set search_path = public, extensions
-as $$
+as '
   select c.id, 1 - (c.embedding <=> query_embedding) as similarity
   from public.characters c
   where c.project_id = filter_project_id and c.embedding is not null
   order by c.embedding <=> query_embedding
-  limit match_count;
-$$;
+  limit match_count
+';
 
 grant execute on function public.match_scenes(extensions.vector, uuid, float, int) to authenticated, service_role;
 grant execute on function public.match_characters(extensions.vector, uuid, int) to authenticated, service_role;

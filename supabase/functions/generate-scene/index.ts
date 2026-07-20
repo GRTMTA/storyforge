@@ -223,8 +223,16 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
   try {
+    if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY is not configured for generate-scene')
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Supabase Edge Function environment is incomplete')
+    }
+
     const body: RequestBody = await req.json()
     const { projectId, setup, parentSceneId, storyState, branchId } = body
+    if (!projectId || !setup?.title || !Array.isArray(setup.characters)) {
+      throw new Error('Invalid scene generation request')
+    }
     const choiceLabel = body.customChoice || body.choiceLabel || null
 
     const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)

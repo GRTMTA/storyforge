@@ -8,16 +8,20 @@ import {
   loadScenes,
   loadChoicesForScene,
   loadStoryState,
+  listBranches,
+  loadScenesByBranch,
 } from '@/services/storyService'
 import { useStory } from '@/contexts/StoryContext'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { GitBranchMap } from './GitBranchMap'
-import type { Character, CharacterGuardrail, ProjectSetup, Scene } from '@/types/story'
+import { PlayStep } from '@/components/play/PlayStep'
+import { ScenesTab } from '@/components/play/ScenesTab'
+import type { Character, CharacterGuardrail, Choice, ProjectSetup, Scene } from '@/types/story'
 import {
   ArrowLeft, Users, GitBranch, Shield, BookOpen,
   ChevronDown, ChevronRight, Trash2, Plus, User,
-  AlertTriangle, Settings, Film, Hash,
+  AlertTriangle, Settings, Film, Hash, Wand2, List,
 } from 'lucide-react'
 
 interface Props {
@@ -25,7 +29,7 @@ interface Props {
   onBack: () => void
 }
 
-type Tab = 'overview' | 'characters' | 'branches' | 'guardrails' | 'settings'
+type Tab = 'overview' | 'characters' | 'play' | 'scenes' | 'branches' | 'guardrails' | 'settings'
 
 // ── Character Detail Modal ────────────────────────────────────────────────────
 function CharacterModal({
@@ -165,39 +169,43 @@ function CharactersTab({
         const isExpanded = expandedId === char.id
         return (
           <div key={char.id} className="border border-[#3D3D7A] rounded-2xl overflow-hidden bg-[#1A1A3E]/50">
-            <button
-              className="w-full flex items-center gap-4 px-5 py-4 hover:bg-[#2D2D5E]/50 transition-colors cursor-pointer text-left"
-              onClick={() => setExpandedId(isExpanded ? null : (char.id ?? null))}
-            >
-              <div className="w-11 h-11 rounded-full flex items-center justify-center text-base font-bold shrink-0"
-                style={{ backgroundColor: `${roleColor(char.role)}22`, border: `2px solid ${roleColor(char.role)}` }}>
-                <span style={{ color: roleColor(char.role) }}>{char.name.charAt(0).toUpperCase()}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3">
-                  <p className="font-semibold text-[#F8F6F0] text-base truncate">{char.name}</p>
-                  <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-xs capitalize shrink-0">
-                    {char.role}
-                  </Badge>
-                  {charGuardrails.length > 0 && (
-                    <Badge variant="warning" className="text-xs shrink-0">
-                      <Shield className="w-3 h-3 mr-1" />{charGuardrails.length}
-                    </Badge>
-                  )}
+            <div className="flex items-stretch hover:bg-[#2D2D5E]/50 transition-colors">
+              <button
+                type="button"
+                className="flex-1 flex items-center gap-4 px-5 py-4 cursor-pointer text-left"
+                onClick={() => setExpandedId(isExpanded ? null : (char.id ?? null))}
+                aria-expanded={isExpanded}
+              >
+                <div className="w-11 h-11 rounded-full flex items-center justify-center text-base font-bold shrink-0"
+                  style={{ backgroundColor: `${roleColor(char.role)}22`, border: `2px solid ${roleColor(char.role)}` }}>
+                  <span style={{ color: roleColor(char.role) }}>{char.name.charAt(0).toUpperCase()}</span>
                 </div>
-                <p className="text-sm text-[#F8F6F0]/40 truncate mt-0.5">{char.description}</p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  onClick={e => { e.stopPropagation(); setSelected(char) }}
-                  className="p-2 rounded-xl border border-[#3D3D7A] text-[#F8F6F0]/40 hover:text-[#F5A623] hover:border-[#F5A623]/40 transition-colors cursor-pointer"
-                  title="View full details"
-                >
-                  <User className="w-4 h-4" />
-                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3">
+                    <p className="font-semibold text-[#F8F6F0] text-base truncate">{char.name}</p>
+                    <Badge variant={char.role === 'protagonist' ? 'gold' : char.role === 'antagonist' ? 'danger' : 'default'} className="text-xs capitalize shrink-0">
+                      {char.role}
+                    </Badge>
+                    {charGuardrails.length > 0 && (
+                      <Badge variant="warning" className="text-xs shrink-0">
+                        <Shield className="w-3 h-3 mr-1" />{charGuardrails.length}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-[#F8F6F0]/40 truncate mt-0.5">{char.description}</p>
+                </div>
                 {isExpanded ? <ChevronDown className="w-5 h-5 text-[#F8F6F0]/30" /> : <ChevronRight className="w-5 h-5 text-[#F8F6F0]/30" />}
-              </div>
-            </button>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(char)}
+                className="self-center mr-5 p-2 rounded-xl border border-[#3D3D7A] text-[#F8F6F0]/40 hover:text-[#F5A623] hover:border-[#F5A623]/40 transition-colors cursor-pointer"
+                title="View full details"
+                aria-label={`View full details for ${char.name}`}
+              >
+                <User className="w-4 h-4" />
+              </button>
+            </div>
 
             {isExpanded && (
               <div className="px-5 pb-5 border-t border-[#3D3D7A]/50 pt-4 flex flex-col gap-3">
@@ -386,7 +394,7 @@ function OverviewTab({
 
 // ── Main ProjectDetailPage ────────────────────────────────────────────────────
 export function ProjectDetailPage({ project, onBack }: Props) {
-  const { dispatch } = useStory()
+  const { state, dispatch } = useStory()
 
   const [tab, setTab] = useState<Tab>('overview')
   const [setup, setSetup] = useState<ProjectSetup | null>(null)
@@ -396,10 +404,12 @@ export function ProjectDetailPage({ project, onBack }: Props) {
   const [loadingData, setLoadingData] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [resuming, setResuming] = useState(false)
+  const [playerReady, setPlayerReady] = useState(false)
 
   useEffect(() => {
     setLoadingData(true)
     setLoadError(null)
+    setPlayerReady(false)
     Promise.all([
       loadProjectSetup(project.id),
       loadCharacters(project.id),
@@ -416,38 +426,76 @@ export function ProjectDetailPage({ project, onBack }: Props) {
       .finally(() => setLoadingData(false))
   }, [project.id])
 
-  const handleResume = async () => {
+  const hydratePlayer = async () => {
+    if (playerReady && state.projectId === project.id) return
+
     setResuming(true)
+    setLoadError(null)
     try {
-      const [projectSetup, projectScenes, storyState] = await Promise.all([
-        loadProjectSetup(project.id),
-        loadScenes(project.id),
+      const [projectSetup, branches, storyState] = await Promise.all([
+        setup ? Promise.resolve(setup) : loadProjectSetup(project.id),
+        listBranches(project.id),
         loadStoryState(project.id),
       ])
+      const activeBranch = branches.find(branch => branch.isActive)
+        ?? branches.find(branch => branch.name === 'main')
+        ?? branches[0]
+      const projectScenes = activeBranch
+        ? await loadScenesByBranch(project.id, activeBranch.id)
+        : await loadScenes(project.id)
+
       dispatch({ type: 'SET_PROJECT', payload: { projectId: project.id, setup: projectSetup } })
+      dispatch({ type: 'SET_BRANCH', payload: activeBranch?.id ?? null })
+
+      let currentChoices: Choice[] = []
       if (projectScenes.length > 0) {
-        const lastScene = projectScenes[projectScenes.length - 1]
-        const choices = await loadChoicesForScene(lastScene.id)
-        dispatch({ type: 'LOAD_HISTORY', payload: { scenes: projectScenes, currentChoices: choices } })
+        currentChoices = await loadChoicesForScene(projectScenes[projectScenes.length - 1].id)
       }
+      dispatch({ type: 'LOAD_HISTORY', payload: { scenes: projectScenes, currentChoices } })
       if (storyState) dispatch({ type: 'SET_STORY_STATE', payload: storyState })
-      dispatch({ type: 'SET_STEP', payload: projectScenes.length > 0 ? 'play' : 'setup' })
-    } catch { /* stay on page */ }
-    finally { setResuming(false) }
+      setPlayerReady(true)
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Failed to load story player')
+      throw error
+    } finally {
+      setResuming(false)
+    }
   }
 
+  const openStoryTab = async (nextTab: 'play' | 'scenes') => {
+    setTab(nextTab)
+    try {
+      await hydratePlayer()
+    } catch {
+      // The tab displays loadError.
+    }
+  }
+
+  const handleResume = async () => {
+    try {
+      await hydratePlayer()
+      dispatch({ type: 'SET_STEP', payload: 'play' })
+    } catch {
+      // Stay on the details page and show the error.
+    }
+  }
+
+  const sceneCount = playerReady && state.projectId === project.id
+    ? state.scenes.length
+    : scenes.length
+
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'overview',   label: 'Overview',                                                              icon: BookOpen  },
-    { id: 'characters', label: `Characters${characters.length > 0 ? ` (${characters.length})` : ''}`,  icon: Users     },
-    { id: 'branches',   label: `Branches${scenes.length > 0 ? ` (${scenes.length})` : ''}`,            icon: GitBranch },
-    { id: 'guardrails', label: 'Guardrails',                                                            icon: Shield    },
-    { id: 'settings',   label: 'Settings',                                                              icon: Settings  },
+    { id: 'overview', label: 'Overview', icon: BookOpen },
+    { id: 'characters', label: `Characters${characters.length > 0 ? ` (${characters.length})` : ''}`, icon: Users },
+    { id: 'play', label: 'Play', icon: Wand2 },
+    { id: 'scenes', label: `Scenes${sceneCount > 0 ? ` (${sceneCount})` : ''}`, icon: List },
+    { id: 'branches', label: 'Branches', icon: GitBranch },
+    { id: 'guardrails', label: 'Guardrails', icon: Shield },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ]
 
   return (
     <div className="w-full min-h-screen bg-[#1A1A3E] flex flex-col">
-
-      {/* ── Header row ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 px-10 py-6 border-b border-[#3D3D7A] shrink-0">
         <div className="flex items-center gap-4 min-w-0">
           <button
@@ -460,20 +508,17 @@ export function ProjectDetailPage({ project, onBack }: Props) {
           <div className="w-px h-6 bg-[#3D3D7A]" />
           <h1 className="text-2xl font-bold text-[#F8F6F0] truncate">{project.title}</h1>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <Button size="md" loading={resuming} onClick={handleResume}>
-            Resume Story →
-          </Button>
-        </div>
+        <Button size="md" loading={resuming} onClick={handleResume}>
+          Resume Story →
+        </Button>
       </div>
 
-      {/* ── Tabs ───────────────────────────────────────────────────────────── */}
-      <div className="flex border-b border-[#3D3D7A] shrink-0">
+      <div className="flex border-b border-[#3D3D7A] shrink-0 overflow-x-auto">
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => setTab(id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-4 text-base font-medium whitespace-nowrap transition-colors cursor-pointer border-b-2 ${
+            onClick={() => id === 'play' || id === 'scenes' ? void openStoryTab(id) : setTab(id)}
+            className={`min-w-fit flex-1 flex items-center justify-center gap-2 px-4 py-4 text-sm font-medium whitespace-nowrap transition-colors cursor-pointer border-b-2 ${
               tab === id
                 ? 'border-[#F5A623] text-[#F5A623] bg-[#F5A623]/5'
                 : 'border-transparent text-[#F8F6F0]/40 hover:text-[#F8F6F0]/70 hover:bg-[#2D2D5E]/30'
@@ -485,27 +530,20 @@ export function ProjectDetailPage({ project, onBack }: Props) {
         ))}
       </div>
 
-      {/* ── Tab content ────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-10 py-8">
-        {loadingData ? (
+      <div className={`flex-1 overflow-y-auto ${tab === 'play' || tab === 'scenes' ? '' : 'px-10 py-8'}`}>
+        {loadingData || ((tab === 'play' || tab === 'scenes') && resuming && !playerReady) ? (
           <div className="flex justify-center py-20">
             <div className="w-10 h-10 rounded-full border-4 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
           </div>
         ) : loadError ? (
-          <div className="p-5 bg-red-500/15 border border-red-500/30 rounded-2xl text-red-400 text-base">
+          <div className="m-8 p-5 bg-red-500/15 border border-red-500/30 rounded-2xl text-red-400 text-base">
             {loadError}
           </div>
         ) : (
           <>
             {tab === 'overview' && (
-              <OverviewTab
-                setup={setup}
-                scenes={scenes}
-                characters={characters}
-                guardrails={guardrails}
-              />
+              <OverviewTab setup={setup} scenes={playerReady ? state.scenes : scenes} characters={characters} guardrails={guardrails} />
             )}
-
             {tab === 'characters' && (
               <CharactersTab
                 characters={characters}
@@ -515,21 +553,17 @@ export function ProjectDetailPage({ project, onBack }: Props) {
                 onGuardrailRemoved={id => setGuardrails(prev => prev.filter(g => g.id !== id))}
               />
             )}
-
+            {tab === 'play' && playerReady && (
+              <PlayStep onViewStoryMap={() => setTab('branches')} />
+            )}
+            {tab === 'scenes' && playerReady && (
+              <ScenesTab onOpenScene={() => setTab('play')} onPlay={() => setTab('play')} />
+            )}
             {tab === 'branches' && (
-              <GitBranchMap
-                scenes={scenes}
-                onRestore={() => {}}
-              />
+              <GitBranchMap scenes={playerReady ? state.scenes : scenes} onRestore={() => {}} />
             )}
-
-            {tab === 'guardrails' && (
-              <GuardrailsTab guardrails={setup?.guardrails ?? []} />
-            )}
-
-            {tab === 'settings' && (
-              <ProjectSettingsTab project={project} />
-            )}
+            {tab === 'guardrails' && <GuardrailsTab guardrails={setup?.guardrails ?? []} />}
+            {tab === 'settings' && <ProjectSettingsTab project={project} />}
           </>
         )}
       </div>

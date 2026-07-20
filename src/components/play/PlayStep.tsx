@@ -129,7 +129,7 @@ function SavepointModal({ onSave, onClose }: SavepointModalProps) {
 }
 
 // ── Main PlayStep ─────────────────────────────────────────────────────────────
-export function PlayStep() {
+export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {}) {
   const { state, dispatch } = useStory()
   const {
     currentScene, currentChoices, storyState, setup, projectId,
@@ -251,7 +251,7 @@ export function PlayStep() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => dispatch({ type: 'SET_PLAY_TAB', payload: 'branches' })}
+              onClick={() => onViewStoryMap ? onViewStoryMap() : dispatch({ type: 'SET_PLAY_TAB', payload: 'branches' })}
             >
               <Map className="w-3.5 h-3.5" />
               Story Map
@@ -383,7 +383,7 @@ export function PlayStep() {
             {isEnding && (
               <div className="text-center py-6">
                 <p className="text-[#F5A623] font-semibold mb-2">Your story has reached its conclusion.</p>
-                <Button onClick={() => dispatch({ type: 'SET_PLAY_TAB', payload: 'branches' })}>
+                <Button onClick={() => onViewStoryMap ? onViewStoryMap() : dispatch({ type: 'SET_PLAY_TAB', payload: 'branches' })}>
                   <Map className="w-4 h-4" /> View Story Map
                 </Button>
               </div>

@@ -78,7 +78,7 @@ function SceneCard({ scene, index, onClick, isActive }: SceneCardProps) {
   )
 }
 
-export function ScenesTab() {
+export function ScenesTab({ onOpenScene, onPlay }: { onOpenScene?: () => void; onPlay?: () => void } = {}) {
   const { state, dispatch } = useStory()
   const { scenes, currentScene } = state
   const [page, setPage] = useState(1)
@@ -95,6 +95,7 @@ export function ScenesTab() {
       // Only show unresolved choices (no leads_to_scene_id)
       const openChoices = choices.filter(c => !c.leadsToSceneId)
       dispatch({ type: 'SET_CURRENT_SCENE', payload: { scene, choices: openChoices } })
+      onOpenScene?.()
     } finally {
       setNavigating(null)
     }
@@ -117,7 +118,7 @@ export function ScenesTab() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => dispatch({ type: 'SET_PLAY_TAB', payload: 'play' })}
+            onClick={() => onPlay ? onPlay() : dispatch({ type: 'SET_PLAY_TAB', payload: 'play' })}
           >
             <Wand2 className="w-3.5 h-3.5" /> Play
           </Button>
