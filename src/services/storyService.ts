@@ -53,6 +53,21 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
   return projectId
 }
 
+/** Update editable project fields */
+export async function updateProject(
+  projectId: string,
+  patch: { title?: string; genre?: string; tone?: string; setting?: string },
+): Promise<void> {
+  const { error } = await db().from('projects').update(patch).eq('id', projectId)
+  if (error) throw new Error(error.message)
+}
+
+/** Update story-level guardrails array */
+export async function updateProjectGuardrails(projectId: string, guardrails: string[]): Promise<void> {
+  const { error } = await db().from('projects').update({ guardrails }).eq('id', projectId)
+  if (error) throw new Error(error.message)
+}
+
 /** Permanently delete a project and all its data */
 export async function deleteProject(projectId: string): Promise<void> {
   // Delete in dependency order (FK cascades handle most, but be explicit)
