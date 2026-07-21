@@ -60,7 +60,7 @@ supabase login
 supabase link --project-ref your-project-ref
 
 # Set secrets
-supabase secrets set OPENROUTER_API_KEY=your-openrouter-key
+supabase secrets set GROQ_API_KEY=your-groq-key
 
 # Deploy
 supabase functions deploy generate-scene
