@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { StoryProvider } from '@/contexts/StoryContext'
+import { ToastProvider } from '@/contexts/ToastContext'
+import { AutoSaveProvider } from '@/contexts/AutoSaveContext'
 import { AppShell } from '@/components/AppShell'
 import { VerifyEmail } from '@/components/auth/VerifyEmail'
 
@@ -25,7 +27,11 @@ function App() {
             element={
               <AuthProvider>
                 <StoryProvider>
-                  <AppShell />
+                  <ToastProvider>
+                    <AutoSaveProvider>
+                      <AppShell />
+                    </AutoSaveProvider>
+                  </ToastProvider>
                 </StoryProvider>
               </AuthProvider>
             }
