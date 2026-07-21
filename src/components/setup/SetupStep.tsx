@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStory } from '@/contexts/StoryContext'
+import { useToast } from '@/contexts/ToastContext'
 import { createProject, generateScene } from '@/services/storyService'
 import { supabase } from '@/lib/supabase'
 import type { ProjectSetup, Character } from '@/types/story'
@@ -10,8 +11,176 @@ import { Badge } from '@/components/ui/Badge'
 import {
   Plus, Trash2, BookOpen, User, Shield, Wand2,
   Pencil, Check, X, Sparkles, ImageIcon, AlertTriangle,
-  Search, ChevronLeft, ChevronRight,
+  Search, ChevronLeft, ChevronRight, LayoutGrid,
 } from 'lucide-react'
+
+// ── Story templates ───────────────────────────────────────────────────────────
+
+interface StoryTemplate {
+  id: string
+  name: string
+  icon: string
+  description: string
+  genre: string
+  tone: string
+  synopsis: string
+  guardrails: string[]
+  characterArchetypes: { name: string; role: Character['role']; description: string; traits: string[] }[]
+}
+
+const STORY_TEMPLATES: StoryTemplate[] = [
+  {
+    id: 'mystery',
+    name: 'Mystery',
+    icon: '🔍',
+    description: 'A web of secrets, suspects, and shifting truths',
+    genre: 'Mystery',
+    tone: 'Mysterious',
+    synopsis: 'A seasoned detective is called to a fog-drenched coastal town after a prominent figure is found dead under impossible circumstances. As secrets unravel, no one is who they seem.',
+    guardrails: ['All clues must be discoverable by the reader', 'The murderer must be introduced early', 'No sudden supernatural explanations'],
+    characterArchetypes: [
+      { name: 'The Detective', role: 'protagonist', description: 'A sharp-minded investigator with a troubled past and an eye for detail.', traits: ['Observant', 'Stubborn', 'Empathetic'] },
+      { name: 'The Suspect', role: 'antagonist', description: 'A charming local with secrets worth killing for.', traits: ['Manipulative', 'Charismatic', 'Patient'] },
+      { name: 'The Witness', role: 'supporting', description: 'A nervous local who knows more than they let on.', traits: ['Nervous', 'Secretive', 'Helpful'] },
+    ],
+  },
+  {
+    id: 'romance',
+    name: 'Romance',
+    icon: '💌',
+    description: 'Hearts collide, barriers crumble, love prevails',
+    genre: 'Romance',
+    tone: 'Hopeful',
+    synopsis: 'Two people from opposing worlds meet by chance in a charming small town. Despite every reason to stay apart, an undeniable connection pulls them together — if they can overcome what keeps them at a distance.',
+    guardrails: ['Emotional tension must build gradually', 'Characters must grow as individuals, not just as a couple', 'Conflict must stem from character flaws, not miscommunication alone'],
+    characterArchetypes: [
+      { name: 'The Lead', role: 'protagonist', description: 'A warm-hearted individual who has closed themselves off after past hurt.', traits: ['Empathetic', 'Guarded', 'Determined'] },
+      { name: 'The Love Interest', role: 'supporting', description: 'Confident on the outside, vulnerable inside — drawn to the lead despite their differences.', traits: ['Confident', 'Caring', 'Conflicted'] },
+    ],
+  },
+  {
+    id: 'scifi',
+    name: 'Sci-Fi',
+    icon: '🚀',
+    description: 'Humanity pushed to the edge of the unknown',
+    genre: 'Sci-Fi',
+    tone: 'Tense',
+    synopsis: 'Aboard a deep-space research vessel, a routine mission turns catastrophic when an uncharted signal leads the crew to a derelict station — and whatever happened there may already be aboard their ship.',
+    guardrails: ['Technology must follow established world rules', 'No magic solutions — science must be the framework', 'Maintain claustrophobic tension in closed environments'],
+    characterArchetypes: [
+      { name: 'The Commander', role: 'protagonist', description: 'A pragmatic captain who must hold the crew together under impossible pressure.', traits: ['Determined', 'Resourceful', 'Conflicted'] },
+      { name: 'The Scientist', role: 'supporting', description: "Brilliant and curious \u2014 perhaps too curious about the signal's origin.", traits: ['Curious', 'Intelligent', 'Idealistic'] },
+    ],
+  },
+  {
+    id: 'fantasy',
+    name: 'Fantasy',
+    icon: '⚔️',
+    description: 'An epic quest in a world of magic and myth',
+    genre: 'Fantasy',
+    tone: 'Epic',
+    synopsis: 'When an ancient prophecy stirs, a reluctant hero must journey across war-torn kingdoms, rally fractured alliances, and face a darkness older than the world itself — before it consumes everything.',
+    guardrails: ['Magic must have costs and rules', 'World-building must remain internally consistent', "The hero's journey must feature genuine sacrifice"],
+    characterArchetypes: [
+      { name: 'The Hero', role: 'protagonist', description: 'An ordinary person thrust into extraordinary circumstances, carrying an impossible burden.', traits: ['Brave', 'Idealistic', 'Determined'] },
+      { name: 'The Dark Lord', role: 'antagonist', description: 'Ancient, powerful, and motivated by something more than simple evil.', traits: ['Calculating', 'Visionary', 'Ruthless'] },
+      { name: 'The Sage', role: 'supporting', description: 'A wise guide with secrets of their own, walking a fine line between mentor and manipulator.', traits: ['Knowledgeable', 'Cautious', 'Loyal'] },
+    ],
+  },
+  {
+    id: 'noir',
+    name: 'Noir',
+    icon: '🌧️',
+    description: 'Rain-soaked streets, moral shadows, bitter truths',
+    genre: 'Thriller',
+    tone: 'Gritty',
+    synopsis: "A world-weary private eye stumbles onto a case that connects a missing socialite, a corrupt city official, and a criminal empire that owns the police. The deeper they dig, the more they wish they hadn't.",
+    guardrails: ['Moral ambiguity must be maintained throughout', 'The protagonist must face corruption within themselves', 'Every character should have something to hide'],
+    characterArchetypes: [
+      { name: 'The Detective', role: 'protagonist', description: "Cynical, broke, and cursed with a conscience that won't let them walk away.", traits: ['Stubborn', 'Observant', 'Conflicted'] },
+      { name: 'The Femme Fatale', role: 'antagonist', description: 'Dangerous, smart, and playing everyone against each other — including themselves.', traits: ['Manipulative', 'Intelligent', 'Ambitious'] },
+    ],
+  },
+  {
+    id: 'adventure',
+    name: 'Adventure',
+    icon: '🗺️',
+    description: 'Danger, discovery, and daring at every turn',
+    genre: 'Adventure',
+    tone: 'Epic',
+    synopsis: 'A ragtag crew of explorers discovers a map to a lost civilization hidden deep in uncharted jungle. Rival factions, deadly traps, and ancient guardians stand between them and the greatest archaeological find in history.',
+    guardrails: ['Pace must remain energetic with no prolonged lulls', 'Discovery and danger must alternate constantly', 'The team must rely on each other\'s unique skills'],
+    characterArchetypes: [
+      { name: 'The Explorer', role: 'protagonist', description: 'Resourceful, reckless, and addicted to the unknown.', traits: ['Brave', 'Resourceful', 'Curious'] },
+      { name: 'The Rival', role: 'antagonist', description: 'A competing treasure hunter willing to betray anyone for the prize.', traits: ['Ambitious', 'Charismatic', 'Ruthless'] },
+    ],
+  },
+  {
+    id: 'horror',
+    name: 'Horror',
+    icon: '🕯️',
+    description: 'Dread creeps in, and escape is never certain',
+    genre: 'Horror',
+    tone: 'Dark',
+    synopsis: 'A group of strangers are stranded overnight in a remote, decaying manor with a violent history. As the night deepens, the line between haunting and madness dissolves — and not everyone will see the morning.',
+    guardrails: ['Build dread through atmosphere, not only shock', 'Characters must make believable decisions under fear', 'The horror source should remain ambiguous for as long as possible'],
+    characterArchetypes: [
+      { name: 'The Skeptic', role: 'protagonist', description: 'Rational and brave — and utterly unprepared for what they can\'t explain.', traits: ['Stubborn', 'Determined', 'Brave'] },
+      { name: 'The Believer', role: 'supporting', description: 'Knows something is wrong from the start — but no one listens.', traits: ['Observant', 'Nervous', 'Empathetic'] },
+    ],
+  },
+  {
+    id: 'drama',
+    name: 'Drama',
+    icon: '🎭',
+    description: 'Human conflict laid bare — raw, honest, unflinching',
+    genre: 'Historical',
+    tone: 'Tense',
+    synopsis: 'A family gathers for the first time in years after a life-altering event forces them to confront long-buried resentments, secrets, and the fragile ties that still hold them together.',
+    guardrails: ['Conflict must arise from character psychology, not external plot', 'Avoid melodrama — grounded emotion only', 'Every character must have a valid and understandable perspective'],
+    characterArchetypes: [
+      { name: 'The Returning Child', role: 'protagonist', description: 'Left years ago to escape — now they\'ve been pulled back, whether they wanted it or not.', traits: ['Conflicted', 'Determined', 'Empathetic'] },
+      { name: 'The Matriarch', role: 'antagonist', description: 'Holds the family together through sheer force of will — and her silence about the past.', traits: ['Calculating', 'Loyal', 'Stubborn'] },
+    ],
+  },
+]
+
+// ── Template picker ───────────────────────────────────────────────────────────
+
+function TemplatePicker({ onSelect }: { onSelect: (t: StoryTemplate | null) => void }) {
+  return (
+    <div className="flex flex-col gap-4 h-full overflow-y-auto">
+      <div className="flex items-center justify-between shrink-0">
+        <div>
+          <h3 className="text-base font-bold text-[#F8F6F0]">Choose a Template</h3>
+          <p className="text-xs text-[#F8F6F0]/40 mt-0.5">Pick a genre to pre-fill your story, then edit freely</p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => onSelect(null)}>
+          <LayoutGrid className="w-3.5 h-3.5" /> Start from Scratch
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {STORY_TEMPLATES.map(t => (
+          <button
+            key={t.id}
+            onClick={() => onSelect(t)}
+            className="flex flex-col items-start gap-2 p-4 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl hover:border-[#F5A623]/50 hover:bg-[#2D2D5E]/70 transition-all cursor-pointer text-left group"
+          >
+            <span className="text-2xl">{t.icon}</span>
+            <div>
+              <p className="font-semibold text-[#F8F6F0] text-sm group-hover:text-[#F5A623] transition-colors">{t.name}</p>
+              <p className="text-xs text-[#F8F6F0]/40 mt-0.5 leading-snug">{t.description}</p>
+            </div>
+            <div className="flex gap-1 flex-wrap mt-auto">
+              <Badge variant="gold" className="text-[10px]">{t.genre}</Badge>
+              <Badge variant="default" className="text-[10px]">{t.tone}</Badge>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -629,7 +798,8 @@ function GuardrailsPanel({ setup, updateSetup }: { setup: ProjectSetup; updateSe
 export function SetupStep() {
   const { user } = useAuth()
   const { dispatch } = useStory()
-  const [activePanel, setActivePanel] = useState<'project' | 'characters' | 'guardrails'>('project')
+  const { toast } = useToast()
+  const [activePanel, setActivePanel] = useState<'template' | 'project' | 'characters' | 'guardrails'>('template')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
 
@@ -649,6 +819,26 @@ export function SetupStep() {
   const updateSetup = (patch: Partial<ProjectSetup>) => setSetup(s => ({ ...s, ...patch }))
   const effectiveGenre = isCustomGenre ? customGenre : setup.genre
   const effectiveTone  = isCustomTone  ? customTone  : setup.tone
+
+  const handleTemplateSelect = (t: StoryTemplate | null) => {
+    if (t) {
+      setSetup({
+        title: '',
+        genre: t.genre,
+        setting: t.synopsis,
+        tone: t.tone,
+        guardrails: t.guardrails,
+        characters: t.characterArchetypes.map(a => ({
+          ...a,
+          id: crypto.randomUUID(),
+          charGuardrails: [],
+        })),
+      })
+      setIsCustomGenre(false)
+      setIsCustomTone(false)
+    }
+    setActivePanel('project')
+  }
 
   const handleLaunch = async () => {
     const finalSetup: ProjectSetup = {
@@ -676,17 +866,20 @@ export function SetupStep() {
       if (result.stateUpdates) dispatch({ type: 'SET_STORY_STATE', payload: result.stateUpdates as never })
       dispatch({ type: 'SET_STEP', payload: 'play' })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error')
+      const msg = e instanceof Error ? e.message : 'Unknown error'
+      setError(msg)
+      toast(msg, 'error')
       dispatch({ type: 'SET_GENERATING', payload: false })
     } finally {
       setLoading(false)
     }
   }
 
-  const panels = [
-    { id: 'project'    as const, label: 'Project',    icon: BookOpen },
-    { id: 'characters' as const, label: 'Characters', icon: User    },
-    { id: 'guardrails' as const, label: 'Guardrails', icon: Shield  },
+  const panels: { id: 'template' | 'project' | 'characters' | 'guardrails'; label: string; icon: React.ElementType }[] = [
+    { id: 'template',   label: 'Template',   icon: LayoutGrid },
+    { id: 'project',    label: 'Project',    icon: BookOpen   },
+    { id: 'characters', label: 'Characters', icon: User       },
+    { id: 'guardrails', label: 'Guardrails', icon: Shield     },
   ]
 
   return (
@@ -740,6 +933,11 @@ export function SetupStep() {
 
         {/* Panel content — no inner container, fields go directly */}
         <div className="flex-1 overflow-hidden px-6 py-6">
+
+          {/* ── TEMPLATE panel ───────────────────────────────────────────────── */}
+          {activePanel === 'template' && (
+            <TemplatePicker onSelect={handleTemplateSelect} />
+          )}
 
           {/* ── PROJECT panel ────────────────────────────────────────────────── */}
           {activePanel === 'project' && (
