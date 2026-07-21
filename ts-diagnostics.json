@@ -1,0 +1,12 @@
+[
+  {
+    "file": "src/components/dashboard/ProjectDetailDrawer.tsx",
+    "line": 13,
+    "message": "'updateCharacter' is declared but its value is never read."
+  },
+  {
+    "file": "src/components/dashboard/ProjectDetailDrawer.tsx",
+    "line": 14,
+    "message": "'deleteCharacter' is declared but its value is never read."
+  }
+]
