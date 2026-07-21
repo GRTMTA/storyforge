@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStory } from '@/contexts/StoryContext'
+import { useToast } from '@/contexts/ToastContext'
 import {
-  listProjects, loadScenes, exportStoryAsText,
+  listProjects, loadScenes, loadProjectSetup, loadChoicesForScene, exportStoryAsText,
 } from '@/services/storyService'
 import { supabase } from '@/lib/supabase'
 import {
   User, Mail, Camera, Save, Download, Trash2,
   Key, Copy, RefreshCw, Webhook, AlertTriangle,
-  CheckCircle, Loader2, BookOpen,
+  CheckCircle, Loader2, BookOpen, FileText, FileJson, Code, FilePlus2,
 } from 'lucide-react'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -79,6 +80,7 @@ const TONES  = ['Epic', 'Dark', 'Whimsical', 'Gritty', 'Hopeful', 'Mysterious', 
 export function SettingsTab() {
   const { user, signOut } = useAuth()
   const { dispatch } = useStory()
+  const { toast } = useToast()
 
   // ── Prefs (loaded from localStorage, keyed per user) ──────────────────────
   const [prefs, setPrefs] = useState<UserPrefs>(() =>
@@ -149,31 +151,46 @@ export function SettingsTab() {
   }
 
   // ── Export ────────────────────────────────────────────────────────────────
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<string | null>(null)
 
-  const handleExportAll = async () => {
+  const triggerDownload = (content: string, filename: string, mime: string) => {
+    const blob = new Blob([content], { type: mime })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExportJSON = async () => {
     if (!user) return
-    setExporting(true)
+    setExporting('json')
     try {
       const projects = await listProjects(user.id)
-      const bundle: Record<string, unknown> = { exported_at: new Date().toISOString(), stories: [] }
       const stories: unknown[] = []
       for (const p of projects) {
-        const scenes = await loadScenes(p.id)
-        stories.push({ ...p, scenes })
+        const [setup, scenes] = await Promise.all([
+          loadProjectSetup(p.id),
+          loadScenes(p.id),
+        ])
+        const scenesWithChoices = await Promise.all(
+          scenes.map(async s => ({ ...s, choices: await loadChoicesForScene(s.id) }))
+        )
+        stories.push({ ...p, setup, scenes: scenesWithChoices })
       }
-      bundle.stories = stories
-      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href = url; a.download = `scribis-export-${Date.now()}.json`; a.click()
-      URL.revokeObjectURL(url)
-    } finally { setExporting(false) }
+      triggerDownload(
+        JSON.stringify({ exported_at: new Date().toISOString(), stories }, null, 2),
+        `scribis-export-${Date.now()}.json`,
+        'application/json',
+      )
+      toast('JSON export downloaded', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export failed', 'error')
+    } finally { setExporting(null) }
   }
 
   const handleExportMarkdown = async () => {
     if (!user) return
-    setExporting(true)
+    setExporting('markdown')
     try {
       const projects = await listProjects(user.id)
       const parts: string[] = []
@@ -181,12 +198,146 @@ export function SettingsTab() {
         const md = await exportStoryAsText(p.id, p.title)
         parts.push(md, '\n\n---\n\n')
       }
-      const blob = new Blob([parts.join('')], { type: 'text/markdown' })
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href = url; a.download = `scribis-stories-${Date.now()}.md`; a.click()
-      URL.revokeObjectURL(url)
-    } finally { setExporting(false) }
+      triggerDownload(parts.join(''), `scribis-stories-${Date.now()}.md`, 'text/markdown')
+      toast('Markdown export downloaded', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export failed', 'error')
+    } finally { setExporting(null) }
+  }
+
+  const handleExportText = async () => {
+    if (!user) return
+    setExporting('text')
+    try {
+      const projects = await listProjects(user.id)
+      const parts: string[] = []
+      for (const p of projects) {
+        const scenes = await loadScenes(p.id)
+        parts.push(`${p.title.toUpperCase()}\n${'='.repeat(p.title.length)}\n`)
+        for (const s of scenes) {
+          parts.push(`\n[Scene ${s.sceneOrder}] ${s.title}\n`)
+          parts.push(`${s.content}\n`)
+        }
+        parts.push('\n\n' + '-'.repeat(60) + '\n\n')
+      }
+      triggerDownload(parts.join(''), `scribis-stories-${Date.now()}.txt`, 'text/plain')
+      toast('Plain text export downloaded', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export failed', 'error')
+    } finally { setExporting(null) }
+  }
+
+  const handleExportHTML = async () => {
+    if (!user) return
+    setExporting('html')
+    try {
+      const projects = await listProjects(user.id)
+      const storyBlocks: string[] = []
+      for (const p of projects) {
+        const [scenes] = await Promise.all([loadScenes(p.id)])
+        const sceneHTML = scenes.map(s => `
+          <section class="scene">
+            <h3>Scene ${s.sceneOrder}: ${s.title}</h3>
+            ${s.choiceMade ? `<p class="choice-made">→ You chose: "${s.choiceMade}"</p>` : ''}
+            <div class="content">${s.content.split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
+          </section>`).join('')
+        storyBlocks.push(`
+          <article class="story">
+            <h2>${p.title}</h2>
+            <p class="meta">${p.genre} · ${p.tone}</p>
+            ${sceneHTML}
+          </article>`)
+      }
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scribis Export</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 720px; margin: 0 auto; padding: 40px 24px; background: #f9f7f4; color: #2a2a2a; line-height: 1.8; }
+    h1 { font-size: 2rem; color: #1a1a3e; } h2 { font-size: 1.5rem; color: #1a1a3e; border-bottom: 2px solid #f5a623; padding-bottom: 8px; margin-top: 48px; }
+    h3 { font-size: 1.1rem; color: #444; margin-top: 28px; }
+    .meta { color: #888; font-size: 0.9rem; margin-top: -8px; }
+    .choice-made { color: #c4841a; font-style: italic; font-size: 0.9rem; }
+    .content p { margin: 0 0 16px; }
+    .story { margin-bottom: 60px; }
+    hr { border: none; border-top: 2px solid #e5e0d8; margin: 40px 0; }
+    footer { text-align: center; color: #aaa; font-size: 0.8rem; margin-top: 60px; }
+  </style>
+</head>
+<body>
+  <h1>Scribis — Exported Stories</h1>
+  <p style="color:#888">Exported on ${new Date().toLocaleDateString()}</p>
+  ${storyBlocks.join('<hr>')}
+  <footer>Generated by Scribis</footer>
+</body>
+</html>`
+      triggerDownload(html, `scribis-stories-${Date.now()}.html`, 'text/html')
+      toast('HTML export downloaded', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export failed', 'error')
+    } finally { setExporting(null) }
+  }
+
+  const handleExportPDF = async () => {
+    if (!user) return
+    setExporting('pdf')
+    try {
+      const projects = await listProjects(user.id)
+      const storyBlocks: string[] = []
+      for (const p of projects) {
+        const scenes = await loadScenes(p.id)
+        const sceneHTML = scenes.map(s => `
+          <section class="scene">
+            <h3>Scene ${s.sceneOrder}: ${s.title}</h3>
+            ${s.choiceMade ? `<p class="choice-made">→ You chose: "${s.choiceMade}"</p>` : ''}
+            <div class="content">${s.content.split('\n\n').map(para => `<p>${para}</p>`).join('')}</div>
+          </section>`).join('')
+        storyBlocks.push(`
+          <article class="story">
+            <h2>${p.title}</h2>
+            <p class="meta">${p.genre} · ${p.tone}</p>
+            ${sceneHTML}
+          </article>`)
+      }
+      const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Scribis — Stories</title>
+  <style>
+    @page { margin: 2cm; }
+    body { font-family: Georgia, serif; max-width: 720px; margin: 0 auto; padding: 0; color: #1a1a1a; line-height: 1.8; }
+    h1 { font-size: 2rem; color: #1a1a3e; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.5rem; color: #1a1a3e; border-bottom: 2px solid #f5a623; padding-bottom: 8px; margin-top: 48px; page-break-before: always; }
+    h2:first-of-type { page-break-before: avoid; }
+    h3 { font-size: 1.1rem; color: #333; margin-top: 28px; margin-bottom: 4px; }
+    .meta { color: #888; font-size: 0.9rem; margin-top: -8px; }
+    .choice-made { color: #c4841a; font-style: italic; font-size: 0.9rem; }
+    .content p { margin: 0 0 14px; }
+    .story { margin-bottom: 60px; }
+    footer { text-align: center; color: #aaa; font-size: 0.8rem; margin-top: 60px; border-top: 1px solid #e5e0d8; padding-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Scribis — Stories</h1>
+  <p style="color:#888;font-size:0.9rem;">Exported on ${new Date().toLocaleDateString()}</p>
+  ${storyBlocks.join('<hr style="border:none;border-top:2px solid #e5e0d8;margin:40px 0;">')}
+  <footer>Generated by Scribis</footer>
+</body>
+</html>`
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.write(html)
+        win.document.close()
+        win.focus()
+        setTimeout(() => { win.print() }, 400)
+      }
+      toast('PDF print dialog opened', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export failed', 'error')
+    } finally { setExporting(null) }
   }
 
   // ── API Key ───────────────────────────────────────────────────────────────
@@ -370,28 +521,36 @@ export function SettingsTab() {
       {/* ── Export ──────────────────────────────────────────────────────────── */}
       <section className="mb-14">
         <SectionHeading>
-          <span className="flex items-center gap-2"><Download className="w-5 h-5 text-[#F5A623]" /> Export</span>
+          <span className="flex items-center gap-2"><Download className="w-5 h-5 text-[#F5A623]" /> Export Stories</span>
         </SectionHeading>
         <p className="text-[#F8F6F0]/50 mb-6 leading-relaxed">
-          Download all your stories as a JSON bundle or as formatted Markdown documents.
+          Download all your stories in any format. All exports include scene content and story metadata.
         </p>
-        <div className="flex flex-wrap gap-4">
-          <button
-            onClick={handleExportAll}
-            disabled={exporting}
-            className="flex items-center gap-2 px-6 py-3.5 bg-[#2D2D5E]/60 border border-[#3D3D7A] text-[#F8F6F0] font-medium rounded-xl hover:border-[#F5A623]/40 hover:bg-[#2D2D5E]/80 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Export All Stories (JSON)
-          </button>
-          <button
-            onClick={handleExportMarkdown}
-            disabled={exporting}
-            className="flex items-center gap-2 px-6 py-3.5 bg-[#2D2D5E]/60 border border-[#3D3D7A] text-[#F8F6F0] font-medium rounded-xl hover:border-[#F5A623]/40 hover:bg-[#2D2D5E]/80 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Export as Markdown
-          </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {([
+            { key: 'pdf',      label: 'PDF (print)',    desc: 'Opens print dialog — save as PDF', icon: FilePlus2, fn: handleExportPDF },
+            { key: 'markdown', label: 'Markdown (.md)', desc: 'Formatted text with headers for each scene', icon: FileText, fn: handleExportMarkdown },
+            { key: 'json',     label: 'JSON (.json)',   desc: 'Full structured data — scenes, choices, characters', icon: FileJson, fn: handleExportJSON },
+            { key: 'text',     label: 'Plain Text (.txt)', desc: 'Clean, unformatted reading copy', icon: FileText, fn: handleExportText },
+            { key: 'html',     label: 'Interactive HTML', desc: 'Standalone readable HTML file', icon: Code, fn: handleExportHTML },
+          ] as const).map(({ key, label, desc, icon: Icon, fn }) => (
+            <button
+              key={key}
+              onClick={fn}
+              disabled={exporting !== null}
+              className="flex items-center gap-4 p-5 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-xl hover:border-[#F5A623]/40 hover:bg-[#2D2D5E]/70 transition-all cursor-pointer disabled:opacity-50 text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#F5A623]/10 border border-[#F5A623]/20 flex items-center justify-center shrink-0">
+                {exporting === key
+                  ? <Loader2 className="w-4.5 h-4.5 text-[#F5A623] animate-spin" />
+                  : <Icon className="w-4.5 h-4.5 text-[#F5A623]" />}
+              </div>
+              <div>
+                <p className="font-semibold text-[#F8F6F0] text-sm">{label}</p>
+                <p className="text-xs text-[#F8F6F0]/40 mt-0.5">{desc}</p>
+              </div>
+            </button>
+          ))}
         </div>
       </section>
 
