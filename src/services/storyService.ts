@@ -45,6 +45,7 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
       biography: char.biography ?? '',
       custom_fields: char.customFields ?? {},
       relations: char.relations ?? [],
+      is_active: char.isActive ?? true,
       current_state: {},
     })
   }
@@ -104,7 +105,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 
   const { data: chars, error: charErr } = await db()
     .from('characters')
-    .select('id, name, role, description, traits, biography, custom_fields, relations')
+    .select('id, name, role, description, traits, biography, custom_fields, relations, is_active')
     .eq('project_id', projectId)
 
   if (charErr) throw new Error(charErr.message)
@@ -123,7 +124,7 @@ export async function loadProjectSetup(projectId: string): Promise<ProjectSetup>
 export async function loadCharacters(projectId: string): Promise<Character[]> {
   const { data, error } = await db()
     .from('characters')
-    .select('id, name, role, description, traits, biography, custom_fields, relations')
+    .select('id, name, role, description, traits, biography, custom_fields, relations, is_active')
     .eq('project_id', projectId)
     .order('role', { ascending: true })
 
@@ -134,7 +135,7 @@ export async function loadCharacters(projectId: string): Promise<Character[]> {
 /** Update a character's fields */
 export async function updateCharacter(
   characterId: string,
-  patch: Partial<Pick<Character, 'name' | 'role' | 'description' | 'traits' | 'biography' | 'customFields' | 'relations'>>,
+  patch: Partial<Pick<Character, 'name' | 'role' | 'description' | 'traits' | 'biography' | 'customFields' | 'relations' | 'isActive'>>,
 ): Promise<void> {
   const dbPatch: Record<string, unknown> = {}
   if (patch.name       !== undefined) dbPatch.name         = patch.name
@@ -144,6 +145,7 @@ export async function updateCharacter(
   if (patch.biography  !== undefined) dbPatch.biography    = patch.biography
   if (patch.customFields!== undefined) dbPatch.custom_fields = patch.customFields
   if (patch.relations  !== undefined) dbPatch.relations    = patch.relations
+  if (patch.isActive  !== undefined) dbPatch.is_active    = patch.isActive
   const { error } = await db().from('characters').update(dbPatch).eq('id', characterId)
   if (error) throw new Error(error.message)
 }
@@ -161,17 +163,18 @@ export async function addCharacter(projectId: string, char: Omit<Character, 'id'
       biography: char.biography ?? '',
       custom_fields: char.customFields ?? {},
       relations: char.relations ?? [],
+      is_active: char.isActive ?? true,
       current_state: {},
     })
-    .select('id, name, role, description, traits, biography, custom_fields, relations')
+    .select('id, name, role, description, traits, biography, custom_fields, relations, is_active')
     .single()
   if (error || !data) throw new Error(error?.message ?? 'Failed to add character')
   return rowToCharacter(data)
 }
 
-/** Delete a character */
+/** Permanently delete a character and clean relationship/state references. */
 export async function deleteCharacter(characterId: string): Promise<void> {
-  const { error } = await db().from('characters').delete().eq('id', characterId)
+  const { error } = await db().rpc('delete_character', { target_character_id: characterId })
   if (error) throw new Error(error.message)
 }
 
@@ -241,6 +244,12 @@ export async function generateScene(
   }
   if (!data) throw new Error('Scene generation returned no data')
   return data
+}
+
+export async function loadScene(sceneId: string): Promise<Scene> {
+  const { data, error } = await db().from('scenes').select('*').eq('id', sceneId).single()
+  if (error || !data) throw new Error(error?.message ?? 'Scene not found')
+  return rowToScene(data)
 }
 
 /** Load full scene tree for a project */
@@ -318,6 +327,7 @@ function rowToCharacter(c: any): Character {
     biography: c.biography ?? '',
     customFields: (c.custom_fields as Record<string, string>) ?? {},
     relations: (c.relations as CharacterRelation[]) ?? [],
+    isActive: c.is_active ?? true,
   }
 }
 

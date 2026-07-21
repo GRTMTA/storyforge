@@ -17,12 +17,14 @@ const corsHeaders = {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Character {
+  id?: string
   name: string
   role: string
   description: string
   traits: string[]
   charGuardrails?: string[]
   biography?: string
+  isActive?: boolean
 }
 
 interface ProjectSetup {
@@ -237,6 +239,40 @@ serve(async (req) => {
 
     const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
+    const [{ data: dbCharacters, error: characterError }, { data: characterRules, error: rulesError }] = await Promise.all([
+      supabaseClient
+        .from('characters')
+        .select('id, name, role, description, traits, biography, is_active')
+        .eq('project_id', projectId)
+        .eq('is_active', true),
+      supabaseClient
+        .from('character_guardrails')
+        .select('character_id, rule')
+        .eq('project_id', projectId),
+    ])
+    if (characterError) throw new Error(`Failed to load active characters: ${characterError.message}`)
+    if (rulesError) throw new Error(`Failed to load character guardrails: ${rulesError.message}`)
+
+    const rulesByCharacter = new Map<string, string[]>()
+    for (const row of characterRules ?? []) {
+      const rules = rulesByCharacter.get(row.character_id) ?? []
+      rules.push(row.rule)
+      rulesByCharacter.set(row.character_id, rules)
+    }
+    const effectiveSetup: ProjectSetup = {
+      ...setup,
+      characters: (dbCharacters ?? []).map(character => ({
+        id: character.id,
+        name: character.name,
+        role: character.role,
+        description: character.description,
+        traits: character.traits ?? [],
+        biography: character.biography ?? '',
+        charGuardrails: rulesByCharacter.get(character.id) ?? [],
+        isActive: true,
+      })),
+    }
+
     // ── 1. Load parent scene context ──────────────────────────────────────────
     let parentContent: string | null = null
     let depth = 0
@@ -270,7 +306,7 @@ serve(async (req) => {
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const prompt = buildScenePrompt(
-        setup, parentContent, choiceLabel, storyState ?? null, depth,
+        effectiveSetup, parentContent, choiceLabel, storyState ?? null, depth,
         similarWarning, retryFeedback,
       )
 
@@ -294,7 +330,7 @@ serve(async (req) => {
       // ── 3b. Consistency check ───────────────────────────────────────────────
       let consistencyBlock = false
       if (pastContents.length > 0) {
-        const checkPrompt = buildConsistencyPrompt(candidate.content, pastContents, setup, setup.guardrails)
+        const checkPrompt = buildConsistencyPrompt(candidate.content, pastContents, effectiveSetup, effectiveSetup.guardrails)
         try {
           const checkRaw = await callGroq(checkPrompt, 0.2)
           const check = JSON.parse(checkRaw)
@@ -323,7 +359,7 @@ serve(async (req) => {
 
     // If all retries exhausted still null, use last attempt
     if (!generated) {
-      const prompt = buildScenePrompt(setup, parentContent, choiceLabel, storyState ?? null, depth, null, null)
+      const prompt = buildScenePrompt(effectiveSetup, parentContent, choiceLabel, storyState ?? null, depth, null, null)
       const raw = await callGroq(prompt)
       generated = JSON.parse(raw)
       finalViolations = generated!.guardrailViolations ?? []
@@ -331,7 +367,7 @@ serve(async (req) => {
 
     // ── 4. Guardrail keyword filter ───────────────────────────────────────────
     const contentLower = generated!.content.toLowerCase()
-    for (const rule of setup.guardrails) {
+    for (const rule of effectiveSetup.guardrails) {
       if (rule.toLowerCase().includes('no explicit violence') &&
           (contentLower.includes('gore') || contentLower.includes('graphic blood'))) {
         finalViolations.push(`Content moderated: explicit violence (rule: "${rule}")`)

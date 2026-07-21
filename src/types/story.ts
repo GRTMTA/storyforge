@@ -19,6 +19,7 @@ export interface Character {
   relations?: CharacterRelation[]
   portraitUrl?: string          // optional, defaults to initials placeholder
   charGuardrails?: string[]     // per-character behavior rules
+  isActive?: boolean            // inactive characters are excluded from generation
 }
 
 export interface CharacterGuardrail {

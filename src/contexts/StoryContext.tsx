@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useReducer,
   type ReactNode,
   type Dispatch,
@@ -66,13 +67,19 @@ function reducer(state: StoryStore, action: Action): StoryStore {
       }
     case 'SET_BRANCH':
       return { ...state, activeBranchId: action.payload }
-    case 'ADD_SCENE':
+    case 'ADD_SCENE': {
+      const scenes = state.scenes.some(scene => scene.id === action.payload.scene.id)
+        ? state.scenes.map(scene => scene.id === action.payload.scene.id ? action.payload.scene : scene)
+        : [...state.scenes, action.payload.scene]
       return {
         ...state,
-        scenes: [...state.scenes, action.payload.scene],
+        scenes,
         currentScene: action.payload.scene,
         currentChoices: action.payload.choices,
+        generating: false,
+        error: null,
       }
+    }
     case 'LOAD_HISTORY': {
       const last = action.payload.scenes[action.payload.scenes.length - 1] ?? null
       return {
@@ -102,6 +109,17 @@ function reducer(state: StoryStore, action: Action): StoryStore {
   }
 }
 
+const STORAGE_KEY = 'storyforge:story-state'
+
+function loadInitialState(): StoryStore {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    return saved ? { ...initialState, ...JSON.parse(saved), generating: false, error: null } : initialState
+  } catch {
+    return initialState
+  }
+}
+
 interface StoryContextValue {
   state: StoryStore
   dispatch: Dispatch<Action>
@@ -110,7 +128,12 @@ interface StoryContextValue {
 const StoryContext = createContext<StoryContextValue | null>(null)
 
 export function StoryProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState)
+  const [state, dispatch] = useReducer(reducer, initialState, loadInitialState)
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, generating: false, error: null }))
+  }, [state])
+
   return (
     <StoryContext.Provider value={{ state, dispatch }}>
       {children}

@@ -27,11 +27,17 @@ export interface Database {
           id: string
           project_id: string
           name: string
-          role: 'protagonist' | 'antagonist' | 'supporting'
+          role: 'protagonist' | 'antagonist' | 'supporting' | 'minor'
           description: string
           traits: string[]
           backstory: string
+          biography: string
+          custom_fields: Json
+          relations: Json
           current_state: Json
+          is_active: boolean
+          embedding: number[] | null
+          embedding_model: string | null
           created_at: string
         }
         Insert: Omit<Database['public']['Tables']['characters']['Row'], 'id' | 'created_at'>
@@ -87,6 +93,14 @@ export interface Database {
       match_scenes: {
         Args: { query_embedding: number[]; project_id: string; match_threshold: number; match_count: number }
         Returns: { id: string; content: string; similarity: number }[]
+      }
+      match_characters: {
+        Args: { query_embedding: number[]; filter_project_id: string; match_count: number }
+        Returns: { id: string; similarity: number }[]
+      }
+      delete_character: {
+        Args: { target_character_id: string }
+        Returns: undefined
       }
     }
   }
