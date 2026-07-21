@@ -1,32 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStory } from '@/contexts/StoryContext'
+import { useToast } from '@/contexts/ToastContext'
+import { useAutoSave } from '@/contexts/AutoSaveContext'
 import { generateScene, createSavepoint, listBranches, ensureMainBranch } from '@/services/storyService'
 import type { Choice } from '@/types/story'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { GeneratingSceneSkeleton } from '@/components/ui/Skeleton'
 import { CharacterPanel } from './CharacterPanel'
 import {
   Wand2, ChevronRight, BookMarked, Users, Map, AlertTriangle,
-  Bookmark, Loader2, PenLine,
+  Bookmark, Loader2, PenLine, RefreshCw, Star,
 } from 'lucide-react'
-
-// ── Loading spinner ───────────────────────────────────────────────────────────
-function SceneLoader() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 py-16">
-      <div className="relative w-16 h-16">
-        <div className="absolute inset-0 rounded-full border-4 border-[#3D3D7A]" />
-        <div className="absolute inset-0 rounded-full border-4 border-[#F5A623] border-t-transparent animate-spin" />
-        <Wand2 className="absolute inset-0 m-auto w-6 h-6 text-[#F5A623]" />
-      </div>
-      <div className="text-center">
-        <p className="text-[#F8F6F0] font-medium">The AI is weaving your story…</p>
-        <p className="text-[#F8F6F0]/40 text-sm mt-1">Consulting the narrative engines</p>
-      </div>
-    </div>
-  )
-}
 
 // ── Preset choice card ────────────────────────────────────────────────────────
 function ChoiceCard({
@@ -84,6 +70,13 @@ function SavepointModal({ onSave, onClose }: SavepointModalProps) {
     }
   }
 
+  // Esc closes
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-md mx-4 bg-[#1A1A3E] border border-[#3D3D7A] rounded-2xl p-6 flex flex-col gap-4">
@@ -128,9 +121,78 @@ function SavepointModal({ onSave, onClose }: SavepointModalProps) {
   )
 }
 
+// ── Scene rating widget ───────────────────────────────────────────────────────
+function SceneRating({ sceneId }: { sceneId: string }) {
+  const storageKey = `scribis:rating:${sceneId}`
+  const [rating, setRating] = useState<number>(() => {
+    const s = localStorage.getItem(storageKey)
+    return s ? parseInt(s, 10) : 0
+  })
+  const [hovered, setHovered] = useState(0)
+  const [feedback, setFeedback] = useState('')
+  const [showFeedback, setShowFeedback] = useState(false)
+  const { toast } = useToast()
+
+  const handleRate = (n: number) => {
+    setRating(n)
+    localStorage.setItem(storageKey, String(n))
+    setShowFeedback(true)
+    toast(`Scene rated ${n} star${n !== 1 ? 's' : ''}`, 'success')
+  }
+
+  const handleFeedbackSave = () => {
+    if (feedback.trim()) {
+      localStorage.setItem(`${storageKey}:feedback`, feedback.trim())
+      toast('Feedback saved', 'success')
+    }
+    setShowFeedback(false)
+  }
+
+  const display = hovered || rating
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-[#F8F6F0]/35 mr-1">Rate this scene:</span>
+        {[1, 2, 3, 4, 5].map(n => (
+          <button
+            key={n}
+            onClick={() => handleRate(n)}
+            onMouseEnter={() => setHovered(n)}
+            onMouseLeave={() => setHovered(0)}
+            className="cursor-pointer transition-transform hover:scale-110"
+          >
+            <Star
+              className={`w-4 h-4 ${n <= display ? 'text-[#F5A623] fill-[#F5A623]' : 'text-[#F8F6F0]/20'}`}
+            />
+          </button>
+        ))}
+        {rating > 0 && (
+          <span className="text-xs text-[#F8F6F0]/30 ml-1">{rating}/5</span>
+        )}
+      </div>
+      {showFeedback && (
+        <div className="flex gap-2">
+          <input
+            autoFocus
+            value={feedback}
+            onChange={e => setFeedback(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleFeedbackSave()}
+            placeholder="Optional feedback…"
+            className="flex-1 px-3 py-1.5 bg-[#2D2D5E]/40 border border-[#3D3D7A] rounded-lg text-[#F8F6F0] text-xs placeholder-[#F8F6F0]/25 focus:outline-none focus:border-[#F5A623]/40"
+          />
+          <Button size="sm" className="text-xs" onClick={handleFeedbackSave}>Save</Button>
+          <Button variant="ghost" size="sm" className="text-xs" onClick={() => setShowFeedback(false)}>Skip</Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main PlayStep ─────────────────────────────────────────────────────────────
 export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {}) {
   const { state, dispatch } = useStory()
+  const { toast } = useToast()
+  const { setSaving, setSaved, setError: setAutoSaveError } = useAutoSave()
   const {
     currentScene, currentChoices, storyState, setup, projectId,
     generating, error, activeBranchId,
@@ -140,6 +202,23 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
   const [guardrailWarnings, setGuardrailWarnings] = useState<string[]>([])
   const [customChoice, setCustomChoice] = useState('')
   const [savepointModalOpen, setSavepointModalOpen] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+
+  // Ctrl+Enter submits custom choice when input is focused
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !generating) {
+        const label = customChoice.trim()
+        if (label) {
+          e.preventDefault()
+          handleChoice(label)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customChoice, generating])
 
   // Trigger generation for a choice (preset or custom)
   const handleChoice = async (choiceLabel: string) => {
@@ -159,10 +238,17 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
       )
       dispatch({ type: 'ADD_SCENE', payload: { scene: result.scene, choices: result.choices } })
       if (result.stateUpdates) dispatch({ type: 'SET_STORY_STATE', payload: result.stateUpdates as never })
-      if (result.guardrailViolations?.length) setGuardrailWarnings(result.guardrailViolations)
+      if (result.guardrailViolations?.length) {
+        setGuardrailWarnings(result.guardrailViolations)
+        toast('Guardrail adjustments made to this scene.', 'info')
+      } else {
+        toast('Scene generated!', 'success')
+      }
       setCustomChoice('')
     } catch (e) {
-      dispatch({ type: 'SET_ERROR', payload: e instanceof Error ? e.message : 'Generation failed' })
+      const msg = e instanceof Error ? e.message : 'Generation failed'
+      dispatch({ type: 'SET_ERROR', payload: msg })
+      toast(msg, 'error')
     }
   }
 
@@ -174,7 +260,6 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
     setGuardrailWarnings([])
 
     try {
-      // Ensure main branch exists
       const branchId = await ensureMainBranch(projectId)
       dispatch({ type: 'SET_BRANCH', payload: branchId })
 
@@ -189,8 +274,34 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
       dispatch({ type: 'ADD_SCENE', payload: { scene: result.scene, choices: result.choices } })
       if (result.stateUpdates) dispatch({ type: 'SET_STORY_STATE', payload: result.stateUpdates as never })
       if (result.guardrailViolations?.length) setGuardrailWarnings(result.guardrailViolations)
+      toast('Opening scene generated!', 'success')
     } catch (e) {
-      dispatch({ type: 'SET_ERROR', payload: e instanceof Error ? e.message : 'Generation failed' })
+      const msg = e instanceof Error ? e.message : 'Generation failed'
+      dispatch({ type: 'SET_ERROR', payload: msg })
+      toast(msg, 'error')
+    }
+  }
+
+  // Regenerate current scene
+  const handleRegenerate = async () => {
+    if (!projectId || !setup || !currentScene) return
+    setRegenerating(true)
+    try {
+      const result = await generateScene(
+        projectId,
+        setup,
+        currentScene.parentSceneId ?? undefined,
+        currentScene.choiceMade ?? undefined,
+        storyState ?? undefined,
+        activeBranchId ?? undefined,
+      )
+      dispatch({ type: 'ADD_SCENE', payload: { scene: result.scene, choices: result.choices } })
+      if (result.stateUpdates) dispatch({ type: 'SET_STORY_STATE', payload: result.stateUpdates as never })
+      toast('Scene regenerated!', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Regeneration failed', 'error')
+    } finally {
+      setRegenerating(false)
     }
   }
 
@@ -202,13 +313,21 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
 
   const handleSavepoint = async (name: string, description: string) => {
     if (!projectId || !currentScene) return
+    setSaving()
     let branchId = activeBranchId
     if (!branchId) {
       const branches = await listBranches(projectId)
       const main = branches.find(b => b.name === 'main') ?? branches[0]
       branchId = main?.id ?? null
     }
-    await createSavepoint(projectId, currentScene.id, name, description, branchId)
+    try {
+      await createSavepoint(projectId, currentScene.id, name, description, branchId)
+      setSaved()
+      toast('Savepoint created!', 'success')
+    } catch {
+      setAutoSaveError()
+      toast('Failed to create savepoint', 'error')
+    }
   }
 
   const turnCount = storyState?.turnCount ?? state.scenes.length
@@ -234,6 +353,7 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
                 size="sm"
                 onClick={() => setSavepointModalOpen(true)}
                 className="text-xs"
+                title="Save Savepoint (Ctrl+S)"
               >
                 <Bookmark className="w-3.5 h-3.5" />
                 Save Point
@@ -289,7 +409,7 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
 
         {/* ── Scene content ───────────────────────────────────────────────────── */}
         {generating ? (
-          <SceneLoader />
+          <GeneratingSceneSkeleton />
         ) : !hasScenes ? (
           /* ── No scenes yet: opening scene CTA ──────────────────────────────── */
           <div className="flex flex-col items-center justify-center gap-6 py-20">
@@ -331,6 +451,23 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
                   ))}
                 </div>
               </CardContent>
+
+              {/* Scene rating + regenerate row */}
+              <div className="mt-4 pt-4 border-t border-[#3D3D7A]/50 flex items-center justify-between gap-3 flex-wrap">
+                <SceneRating sceneId={currentScene.id} />
+                {!isEnding && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={regenerating || generating}
+                    onClick={handleRegenerate}
+                    className="text-xs text-[#F8F6F0]/40 hover:text-[#F8F6F0]/80 shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${regenerating ? 'animate-spin' : ''}`} />
+                    Regenerate
+                  </Button>
+                )}
+              </div>
             </Card>
 
             {/* Preset choices */}
@@ -372,6 +509,7 @@ export function PlayStep({ onViewStoryMap }: { onViewStoryMap?: () => void } = {
                     size="sm"
                     disabled={!customChoice.trim() || generating}
                     onClick={handleCustomChoice}
+                    title="Submit (Ctrl+Enter)"
                   >
                     <ChevronRight className="w-4 h-4" />
                   </Button>
