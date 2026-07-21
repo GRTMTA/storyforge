@@ -109,7 +109,7 @@ function reducer(state: StoryStore, action: Action): StoryStore {
   }
 }
 
-const STORAGE_KEY = 'storyforge:story-state'
+const STORAGE_KEY = 'scribis:story-state'
 
 function loadInitialState(): StoryStore {
   try {

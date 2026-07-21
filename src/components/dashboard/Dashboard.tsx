@@ -105,7 +105,7 @@ export function Dashboard() {
               <BookOpen className="w-6 h-6 text-[#F5A623]" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[#F8F6F0]">StoryForge</h1>
+              <h1 className="text-2xl font-bold text-[#F8F6F0]">Scribis</h1>
               <p className="text-[#F8F6F0]/40 text-sm">Your narrative worlds</p>
             </div>
           </div>

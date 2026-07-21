@@ -49,7 +49,7 @@ interface Props {
 
 type Tab = 'overview' | 'characters' | 'play' | 'guardrails' | 'settings'
 
-const TAB_STORAGE_KEY = (id: string) => `storyforge:detail-tab:${id}`
+const TAB_STORAGE_KEY = (id: string) => `scribis:detail-tab:${id}`
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -139,13 +139,14 @@ function SavepointModal({ onSave, onClose }: { onSave: (n: string, d: string) =>
 // ── Branches Modal ────────────────────────────────────────────────────────────
 
 function BranchesModal({
-  projectId, scenes, onClose, onBranchSwitch,
+  projectId, scenes, onClose, onBranchSwitch, onRestoreScene,
 }: {
   projectId: string
   scenes: Scene[]
   activeBranchId?: string | null
   onClose: () => void
   onBranchSwitch: (branchId: string) => Promise<void>
+  onRestoreScene?: (sceneId: string) => Promise<void>
 }) {
   const [branches, setBranches] = useState<Branch[]>([])
   const [savepoints, setSavepoints] = useState<Savepoint[]>([])
@@ -295,7 +296,12 @@ function BranchesModal({
                           {sp.description && <p className="text-xs text-[#F8F6F0]/40 mt-0.5">{sp.description}</p>}
                           {scene && <p className="text-xs text-[#F8F6F0]/25 mt-0.5">at: {scene.title}</p>}
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                          {scene && onRestoreScene && (
+                            <Button variant="outline" size="sm" onClick={async () => { await onRestoreScene(sp.sceneId); onClose() }}>
+                              ↩ Restore
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" onClick={() => { setBranchFromSp(isExpanding ? null : sp); setBfspName(`from-${sp.name.toLowerCase().replace(/\s+/g, '-')}`) }}>
                             <GitBranch className="w-3.5 h-3.5" /> Branch
                           </Button>
@@ -625,6 +631,13 @@ function PlayTab({ project: _project }: { project: Props['project'] }) {
           activeBranchId={activeBranchId}
           onClose={() => setBranchesOpen(false)}
           onBranchSwitch={handleBranchSwitch}
+          onRestoreScene={async (sceneId) => {
+            const allScenes = state.scenes
+            const scene = allScenes.find(s => s.id === sceneId)
+            if (!scene) return
+            const choices = await loadAllChoicesForScene(sceneId)
+            dispatch({ type: 'SET_CURRENT_SCENE', payload: { scene, choices: choices.filter(c => !c.leadsToSceneId) } })
+          }}
         />
       )}
     </div>

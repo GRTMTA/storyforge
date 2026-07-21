@@ -1,4 +1,4 @@
-// Domain types for StoryForge
+// Domain types for Scribis
 
 export type RelationType = 'Ally' | 'Enemy' | 'Family' | 'Love' | 'Rival' | 'Mentor'
 

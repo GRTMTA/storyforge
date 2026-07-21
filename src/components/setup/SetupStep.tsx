@@ -850,8 +850,10 @@ export function SetupStep() {
 
           {/* ── GUARDRAILS panel (two-panel) ──────────────────────────────────── */}
           {activePanel === 'guardrails' && (
-            <div className="h-full flex flex-col gap-4">
-              <GuardrailsPanel setup={setup} updateSetup={updateSetup} />
+            <div className="h-full flex flex-col gap-3">
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <GuardrailsPanel setup={setup} updateSetup={updateSetup} />
+              </div>
               {error && (
                 <div className="p-3 bg-red-500/15 border border-red-500/30 rounded-lg text-red-400 text-sm shrink-0">
                   {error}
