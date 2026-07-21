@@ -1,6 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useStory } from '@/contexts/StoryContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useToast } from '@/contexts/ToastContext'
+import { AutoSaveIndicator } from '@/contexts/AutoSaveContext'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { DashboardTab } from '@/components/dashboard/DashboardTab'
 import { StoriesTab } from '@/components/dashboard/StoriesTab'
@@ -258,6 +260,7 @@ function Sidebar({
 export function AppShell() {
   const { user, loading, signOut } = useAuth()
   const { state, dispatch } = useStory()
+  const { toast } = useToast()
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('dashboard')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('hover')
   const [detailProject, setDetailProject] = useState<DetailProject | null>(null)
@@ -267,6 +270,46 @@ export function AppShell() {
       m === 'expanded' ? 'collapsed' : m === 'collapsed' ? 'hover' : 'expanded',
     )
   }
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+
+      // Esc — close modals / reset from story
+      if (e.key === 'Escape') {
+        if (state.step === 'setup') dispatch({ type: 'RESET' })
+        return
+      }
+
+      // Ctrl/Cmd + N — new story
+      if (mod && e.key === 'n') {
+        e.preventDefault()
+        dispatch({ type: 'SET_STEP', payload: 'setup' })
+        return
+      }
+
+      // Ctrl/Cmd + S — show save toast (actual saving happens in PlayStep)
+      if (mod && e.key === 's' && state.step === 'play') {
+        e.preventDefault()
+        toast('Use the Save Point button to create a named checkpoint.', 'info')
+        return
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [state.step, dispatch, toast])
+
+  // ── Confirm before navigate ────────────────────────────────────────────────
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (state.generating || state.step === 'play' || state.step === 'setup') {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [state.generating, state.step])
 
   if (loading) {
     return (
@@ -307,6 +350,11 @@ export function AppShell() {
           sceneCount={state.scenes.length}
         />
       )}
+
+      {/* Auto-save indicator — always visible when active */}
+      <div className="fixed bottom-4 left-[80px] z-40">
+        <AutoSaveIndicator />
+      </div>
 
       {/* Main area — always offset by the fixed collapsed sidebar width */}
       <main
