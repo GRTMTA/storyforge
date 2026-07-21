@@ -53,6 +53,24 @@ export async function createProject(setup: ProjectSetup, userId: string): Promis
   return projectId
 }
 
+/** Permanently delete a project and all its data */
+export async function deleteProject(projectId: string): Promise<void> {
+  // Delete in dependency order (FK cascades handle most, but be explicit)
+  await db().from('story_state').delete().eq('project_id', projectId)
+  await db().from('savepoints').delete().eq('project_id', projectId)
+  await db().from('branches').delete().eq('project_id', projectId)
+  const { data: scenes } = await db().from('scenes').select('id').eq('project_id', projectId)
+  if (scenes?.length) {
+    const ids = scenes.map((s: any) => s.id)
+    await db().from('choices').delete().in('scene_id', ids)
+  }
+  await db().from('scenes').delete().eq('project_id', projectId)
+  await db().from('character_guardrails').delete().eq('project_id', projectId)
+  await db().from('characters').delete().eq('project_id', projectId)
+  const { error } = await db().from('projects').delete().eq('id', projectId)
+  if (error) throw new Error(error.message)
+}
+
 /** List all projects for a user */
 export async function listProjects(userId: string): Promise<any[]> {
   const { data, error } = await db()

@@ -10,8 +10,6 @@ import {
   loadStoryState,
   listBranches,
   loadScenesByBranch,
-  updateCharacter,
-  deleteCharacter,
 } from '@/services/storyService'
 import { useStory } from '@/contexts/StoryContext'
 import { Button } from '@/components/ui/Button'
