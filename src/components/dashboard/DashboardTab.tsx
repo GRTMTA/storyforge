@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStory } from '@/contexts/StoryContext'
+import { useToast } from '@/contexts/ToastContext'
 import {
   listProjects,
   loadProjectStats,
@@ -10,12 +11,13 @@ import {
   loadStoryState,
 } from '@/services/storyService'
 import { Badge } from '@/components/ui/Badge'
+import { DashboardListSkeleton } from '@/components/ui/Skeleton'
 import {
-  Clock, Wand2, GitBranch, Users, Film,
+  Clock, GitBranch, Users, Film,
   BookOpen, Layers, Zap,
-  ArrowRight, Activity,
+  ArrowRight, Activity, TrendingUp, BarChart2,
 } from 'lucide-react'
-import type { ProjectStats } from '@/types/story'
+import type { ProjectStats, Scene } from '@/types/story'
 
 interface ProjectRow {
   id: string
@@ -63,6 +65,7 @@ function StatCard({
 export function DashboardTab() {
   const { user } = useAuth()
   const { dispatch } = useStory()
+  const { toast } = useToast()
   const [projects, setProjects]   = useState<ProjectRow[]>([])
   const [stats, setStats]         = useState<Record<string, ProjectStats>>({})
   const [loading, setLoading]     = useState(true)
@@ -104,9 +107,51 @@ export function DashboardTab() {
       }
       if (storyState) dispatch({ type: 'SET_STORY_STATE', payload: storyState })
       dispatch({ type: 'SET_STEP', payload: scenes.length > 0 ? 'play' : 'setup' })
-    } catch { /* stay on dashboard */ }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Failed to load story', 'error')
+    }
     finally { setResuming(null) }
   }
+
+  // ── Writing analytics ─────────────────────────────────────────────────────
+  const [allScenes, setAllScenes] = useState<Scene[]>([])
+
+  useEffect(() => {
+    if (projects.length === 0) return
+    const stored = localStorage.getItem('scribis:analytics:scenes')
+    if (stored) { try { setAllScenes(JSON.parse(stored)) } catch { /* ignore */ } }
+    Promise.all(projects.map(p => loadScenes(p.id))).then(sceneLists => {
+      const flat = sceneLists.flat()
+      setAllScenes(flat)
+      localStorage.setItem('scribis:analytics:scenes', JSON.stringify(flat))
+    }).catch(() => {/* silent */})
+  }, [projects])
+
+  const analytics = useMemo(() => {
+    const totalWords = allScenes.reduce((sum, s) => sum + s.content.split(/\s+/).filter(Boolean).length, 0)
+    const avgLen = allScenes.length > 0 ? Math.round(totalWords / allScenes.length) : 0
+
+    // Writing streak: count consecutive days from today
+    const dateSet = new Set(
+      projects.map(p => new Date(p.updated_at).toDateString())
+    )
+    let streak = 0
+    const d = new Date()
+    while (dateSet.has(d.toDateString())) {
+      streak++
+      d.setDate(d.getDate() - 1)
+    }
+
+    // Most active day
+    const dayCounts: number[] = Array(7).fill(0)
+    projects.forEach(p => {
+      dayCounts[new Date(p.updated_at).getDay()]++
+    })
+    const maxDay = dayCounts.indexOf(Math.max(...dayCounts))
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+    return { totalWords, avgLen, streak, mostActiveDay: days[maxDay] }
+  }, [allScenes, projects])
 
   const totalScenes = Object.values(stats).reduce((s, p) => s + p.sceneCount, 0)
   const totalChars  = Object.values(stats).reduce((s, p) => s + p.characterCount, 0)
@@ -151,12 +196,10 @@ export function DashboardTab() {
 
           <div className="divide-y divide-[#3D3D7A]/50">
             {loading ? (
-              <div className="flex justify-center py-12">
-                <div className="w-7 h-7 rounded-full border-2 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
-              </div>
+              <DashboardListSkeleton rows={3} />
             ) : recentProjects.length === 0 ? (
               <div className="text-center py-14 text-[#F8F6F0]/25">
-                <Wand2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-base">No stories yet</p>
                 <p className="text-sm mt-1 text-[#F8F6F0]/20">Go to Stories to create your first.</p>
               </div>
@@ -264,6 +307,36 @@ export function DashboardTab() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Writing Analytics ──────────────────────────────────────────────────── */}
+      <div className="mt-7 bg-[#2D2D5E]/30 border border-[#3D3D7A] rounded-2xl overflow-hidden">
+        <div className="flex items-center gap-2.5 px-6 py-5 border-b border-[#3D3D7A]">
+          <BarChart2 className="w-5 h-5 text-[#F5A623]" />
+          <p className="text-base font-semibold text-[#F8F6F0]/90">Writing Analytics</p>
+        </div>
+        <div className="px-6 py-5 grid grid-cols-2 md:grid-cols-4 gap-5">
+          {[
+            { icon: TrendingUp, label: 'Total Words Written', value: analytics.totalWords.toLocaleString() },
+            { icon: Film,       label: 'Scenes Generated',    value: totalScenes.toString() },
+            { icon: BarChart2,  label: 'Avg Scene Length',    value: `${analytics.avgLen} words` },
+            { icon: Activity,   label: 'Writing Streak',      value: `${analytics.streak} day${analytics.streak !== 1 ? 's' : ''}` },
+          ].map(({ icon: Icon, label, value }) => (
+            <div key={label} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-[#F8F6F0]/40 text-xs">
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </div>
+              <p className="text-2xl font-bold text-[#F8F6F0]">{value}</p>
+            </div>
+          ))}
+        </div>
+        {projects.length > 0 && (
+          <div className="px-6 pb-5 flex items-center gap-2 text-xs text-[#F8F6F0]/30">
+            <Zap className="w-3 h-3 text-[#F5A623]" />
+            Most active day: <span className="text-[#F5A623]/70 ml-1">{analytics.mostActiveDay}</span>
+          </div>
+        )}
       </div>
 
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStory } from '@/contexts/StoryContext'
+import { useToast } from '@/contexts/ToastContext'
 import {
   listProjects,
   loadProjectStats,
@@ -13,8 +14,10 @@ import {
 } from '@/services/storyService'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { StoryCardSkeleton } from '@/components/ui/Skeleton'
+import { EmptyStories } from '@/components/ui/EmptyState'
 import {
-  Plus, Clock, Wand2, GitBranch, Film, Search,
+  Plus, Clock, GitBranch, Film, Search,
   ChevronDown, MoreVertical, Trash2, Download, Eye,
 } from 'lucide-react'
 import type { ProjectStats } from '@/types/story'
@@ -250,6 +253,7 @@ interface StoryCardData {
 export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCardData) => void }) {
   const { user } = useAuth()
   const { dispatch } = useStory()
+  const { toast } = useToast()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [stats,    setStats]    = useState<Record<string, ProjectStats>>({})
   const [loading,  setLoading]  = useState(true)
@@ -323,7 +327,9 @@ export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCardData)
       a.download = `${p.title.replace(/\s+/g, '_')}.md`
       a.click()
       URL.revokeObjectURL(url)
+      toast(`"${p.title}" exported as Markdown`, 'success')
     } catch (e) {
+      toast(e instanceof Error ? e.message : 'Export failed', 'error')
       setError(e instanceof Error ? e.message : 'Export failed')
     }
   }
@@ -336,7 +342,9 @@ export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCardData)
       setProjects(prev => prev.filter(p => p.id !== confirmDelete.id))
       setStats(prev => { const n = { ...prev }; delete n[confirmDelete.id]; return n })
       setConfirmDelete(null)
+      toast('Story deleted', 'info')
     } catch (e) {
+      toast(e instanceof Error ? e.message : 'Failed to delete story', 'error')
       setError(e instanceof Error ? e.message : 'Failed to delete project')
     } finally {
       setDeleting(false)
@@ -462,20 +470,15 @@ export function StoriesTab({ onViewDetail }: { onViewDetail?: (p: StoryCardData)
 
       {/* Card grid */}
       {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="w-10 h-10 rounded-full border-4 border-[#3D3D7A] border-t-[#F5A623] animate-spin" />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {Array.from({ length: 6 }).map((_, i) => <StoryCardSkeleton key={i} />)}
         </div>
+      ) : filtered.length === 0 && projects.length === 0 ? (
+        <EmptyStories onNew={() => dispatch({ type: 'SET_STEP', payload: 'setup' })} />
       ) : filtered.length === 0 ? (
         <div className="text-center py-24 text-[#F8F6F0]/30">
-          <Wand2 className="w-16 h-16 mx-auto mb-5 opacity-20" />
-          <p className="font-medium text-[#F8F6F0]/50 text-xl mb-2">
-            {projects.length === 0 ? 'No stories yet' : 'No stories match your filters'}
-          </p>
-          <p className="text-base">
-            {projects.length === 0
-              ? 'Click "New Story" to forge your first narrative.'
-              : 'Try adjusting your search or filters.'}
-          </p>
+          <p className="font-medium text-[#F8F6F0]/50 text-xl mb-2">No stories match your filters</p>
+          <p className="text-base">Try adjusting your search or filters.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
