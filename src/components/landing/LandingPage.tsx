@@ -121,31 +121,53 @@ function ProgressBar() {
 
 // ─── Header — logo only, no Sign In button ────────────────────────────────────
 function Header() {
-  const [solid, setSolid] = useState(false)
+  const [hidden, setHidden] = useState(false)
+
   useEffect(() => {
-    const h = () => setSolid(window.scrollY > 60)
-    window.addEventListener('scroll', h, { passive: true })
-    return () => window.removeEventListener('scroll', h)
+    const updateVisibility = () => setHidden(window.scrollY >= window.innerHeight)
+    updateVisibility()
+    window.addEventListener('scroll', updateVisibility, { passive: true })
+    window.addEventListener('resize', updateVisibility)
+    return () => {
+      window.removeEventListener('scroll', updateVisibility)
+      window.removeEventListener('resize', updateVisibility)
+    }
   }, [])
+
   return (
-    <header className="fixed inset-x-0 top-0 z-[500] flex items-center justify-between"
+    <header
+      className="landing-header fixed inset-x-0 top-0 z-[500] flex items-center"
+      aria-hidden={hidden}
       style={{
-        padding: '18px 28px',
-        background: solid ? 'rgba(5,5,16,.88)' : 'transparent',
-        backdropFilter: solid ? 'blur(20px)' : 'none',
-        borderBottom: solid ? '1px solid rgba(245,166,35,.09)' : '1px solid transparent',
-        transition: 'background .4s, border-color .4s',
-      }}>
-      {/* Logo */}
-      <div className="flex items-center gap-2.5 select-none">
-        <img src="/logo-scribis.png" alt="Scribis" width={32} height={32}
+        padding: '12px 20px',
+        opacity: hidden ? 0 : 1,
+        transform: hidden ? 'translateY(-100%)' : 'translateY(0)',
+        pointerEvents: hidden ? 'none' : 'auto',
+        transition: 'opacity .4s ease, transform .4s ease',
+      }}
+    >
+      <style>{`
+        .landing-brand-logo {
+          width: 96px !important;
+          height: 96px !important;
+          flex-shrink: 0;
+        }
+        .landing-brand-title {
+          font-size: clamp(2.5rem, 6vw, 3.3rem) !important;
+          line-height: 1;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .landing-header { transition: none !important; }
+        }
+      `}</style>
+      <div className="flex items-center gap-3 select-none">
+        <img className="landing-brand-logo" src="/logo-scribis.png" alt="Scribis" width={96} height={96}
           style={{ objectFit: 'contain' }} />
-        <span className="font-bold tracking-wide text-white"
-          style={{ fontFamily: T.serif, fontSize: '1.1rem' }}>
+        <span className="landing-brand-title font-bold tracking-wide text-white"
+          style={{ fontFamily: T.serif, fontSize: '3.3rem' }}>
           Scribis
         </span>
       </div>
-      {/* Subtle CTA link — not a full Sign In button */}
     </header>
   )
 }
@@ -597,14 +619,14 @@ function FinalCTA({ onStart, onSignIn }: { onStart: () => void; onSignIn: () => 
 function Footer() {
   return (
     <footer
-      className="flex flex-col md:flex-row items-center justify-between gap-5 px-8 md:px-14 py-9"
+      className="flex flex-col md:flex-row items-center justify-between gap-4 px-8 md:px-14 py-3.5"
       style={{ background: '#03030a', borderTop: '1px solid rgba(255,255,255,.05)' }}
     >
-      <div className="flex items-center gap-2.5">
-        <img src="/logo-scribis.png" alt="Scribis" width={28} height={28}
+      <div className="flex items-center gap-3">
+        <img className="landing-brand-logo" src="/logo-scribis.png" alt="Scribis" width={96} height={96}
           style={{ objectFit: 'contain' }} />
-        <span className="font-semibold"
-          style={{ color: 'rgba(255,255,255,.54)', fontFamily: T.serif, fontSize: '1rem' }}>
+        <span className="landing-brand-title font-bold tracking-wide"
+          style={{ color: '#fff', fontFamily: T.serif, fontSize: '3.3rem' }}>
           Scribis
         </span>
       </div>
