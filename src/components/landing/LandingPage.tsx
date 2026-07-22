@@ -1,252 +1,543 @@
 /**
- * Scribis — Cinematic scroll-based landing page
+ * Scribis — Cinematic landing page
  *
- * Architecture:
- *  - Every section is `position: fixed` and `height: 100vh`, stacked on top of
- *    each other in the DOM. The page height is set by a tall scroll-track div.
- *  - GSAP ScrollTrigger scrubs opacity / y transforms as the user scrolls,
- *    creating a seamless "one section fades into the next" cinematic feel.
- *  - Images are CSS background-image with background-size: cover — never <img>.
- *  - All GSAP instances are cleaned up on unmount.
+ * Layout architecture:
+ *  § 1  Hero              — full-screen, loads instantly, text animates in
+ *  § 2  Problem           — normal scroll section, dark BG, large text
+ *  § 3  Solution          — normal scroll section
+ *  § 4  Features          — 3-card grid, each card staggers in
+ *  § 5  Narrative journey — ONE pinned section; GSAP scrub crossfades the 5
+ *                           fantasy images inside it as user scrolls through
+ *                           500vh of scroll space
+ *  § 6  Final CTA         — normal scroll section over gate.png
+ *  § 7  Footer
+ *
+ * GSAP rules used:
+ *  - pin:true on the narrative container so it stays visible while
+ *    the inner slides crossfade
+ *  - scrub:1 on every timeline so position catches up smoothly
+ *  - Individual section ScrollTriggers (trigger = section element, not document)
+ *    for the non-pinned text-reveal sections
+ *  - NO vh-string math — all positions are expressed relative to the trigger
+ *    element using "top top" / "bottom bottom" / "+=Xpx" notation
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, GitBranch, Wand2, Bookmark } from 'lucide-react'
 
 gsap.registerPlugin(ScrollTrigger)
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Asset paths ───────────────────────────────────────────────────────────────
+const IMGS = {
+  book:    '/images/landing/book.png',
+  rise:    '/images/landing/fae_rise.png',
+  glide:   '/images/landing/fae_glide.png',
+  arrive:  '/images/landing/fae_arrive.png',
+  gate:    '/images/landing/gate.png',
+} as const
 
-/** How many vh of scroll-room each section gets */
-const SCROLL_PER_SECTION = 120 // 120vh per section feels deliberate
-
-const SECTIONS = [
-  {
-    id: 'hero',
-    image: '/images/landing/book.png',
-    eyebrow: 'AI-powered interactive storytelling',
-    headline: 'Every story begins\nwith a single page.',
-    sub: 'Write, branch, and explore — co-authored by AI,\nshaped entirely by you.',
-    overlay: 'linear-gradient(to bottom, rgba(8,8,20,.72) 0%, rgba(12,12,30,.38) 50%, rgba(8,8,20,.88) 100%)',
-    particles: 40,
-    isCta: false,
-  },
-  {
-    id: 'scene1',
-    image: '/images/landing/fae_rise.png',
-    eyebrow: null,
-    headline: 'The spark of creation...',
-    sub: null,
-    overlay: 'linear-gradient(to bottom, rgba(8,8,20,.65) 0%, rgba(18,12,8,.22) 55%, rgba(8,8,20,.72) 100%)',
-    particles: 28,
-    isCta: false,
-  },
-  {
-    id: 'scene2',
-    image: '/images/landing/fae_glide.png',
-    eyebrow: null,
-    headline: 'Every choice leads\nsomewhere new.',
-    sub: null,
-    overlay: 'linear-gradient(to bottom, rgba(8,8,20,.62) 0%, rgba(10,8,28,.18) 50%, rgba(8,8,20,.68) 100%)',
-    particles: 22,
-    isCta: false,
-  },
-  {
-    id: 'scene3',
-    image: '/images/landing/fae_arrive.png',
-    eyebrow: null,
-    headline: 'The destination\ndraws near...',
-    sub: null,
-    overlay: 'linear-gradient(to bottom, rgba(8,8,20,.55) 0%, rgba(14,10,30,.22) 55%, rgba(8,8,20,.85) 100%)',
-    particles: 30,
-    isCta: false,
-  },
-  {
-    id: 'ending',
-    image: '/images/landing/gate.png',
-    eyebrow: 'The beginning awaits',
-    headline: 'Your story\nstarts here.',
-    sub: 'Step through the gate. Every choice you make\nwrites the next chapter.',
-    overlay: 'linear-gradient(to bottom, rgba(8,8,20,.68) 0%, rgba(12,10,28,.20) 48%, rgba(8,8,20,.82) 100%)',
-    particles: 55,
-    isCta: true,
-  },
+// ─── Narrative slides (used inside the pinned journey section) ─────────────────
+const SLIDES = [
+  { img: IMGS.book,   line: 'Every story begins with a single page.' },
+  { img: IMGS.rise,   line: 'The spark of creation...'               },
+  { img: IMGS.glide,  line: 'Every choice leads somewhere new.'      },
+  { img: IMGS.arrive, line: 'The destination draws near...'          },
+  { img: IMGS.gate,   line: 'The gate stands open.'                  },
 ] as const
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Floating particles (CSS-only, no JS animation per-frame)
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Particles (pure CSS, deterministic) ──────────────────────────────────────
+interface Pt { id:number; x:number; y:number; sz:number; dur:number; del:number; gold:boolean }
+const mkPts = (n:number): Pt[] => Array.from({length:n},(_,i)=>({
+  id:i, x:(i*137.5+17)%100, y:(i*97.3+11)%100,
+  sz:1.2+(i%5)*0.55, dur:3.5+(i%7)*0.6, del:(i%9)*0.55, gold:i%3!==0,
+}))
 
-interface Particle { id: number; x: number; y: number; size: number; dur: number; delay: number; gold: boolean }
-
-function makeParticles(n: number): Particle[] {
-  // Stable seed — generated once per mount so particles don't re-randomise on re-render
-  return Array.from({ length: n }, (_, i) => ({
-    id: i,
-    x: (i * 137.5 + 17) % 100,          // pseudo-random spread via golden ratio
-    y: (i * 97.3  + 11) % 100,
-    size: 1.2 + (i % 5) * 0.55,
-    dur:  3.5 + (i % 7) * 0.6,
-    delay: (i % 9) * 0.55,
-    gold: i % 3 !== 0,
-  }))
-}
-
-function Particles({ count }: { count: number }) {
-  const [pts] = useState(() => makeParticles(count))
+function Particles({ n }: { n: number }) {
+  const [pts] = useState(() => mkPts(n))
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
-      {pts.map(p => (
-        <span
-          key={p.id}
-          className="absolute rounded-full will-change-transform"
-          style={{
-            left: `${p.x}%`,
-            top: `${p.y}%`,
-            width:  p.size,
-            height: p.size,
-            background: p.gold ? '#F5A623' : '#c4b5fd',
-            opacity: 0,
-            animation: `spark ${p.dur}s ${p.delay}s ease-in-out infinite`,
-          }}
-        />
+      {pts.map(p=>(
+        <span key={p.id} className="absolute rounded-full"
+          style={{left:`${p.x}%`,top:`${p.y}%`,width:p.sz,height:p.sz,
+            background:p.gold?'#F5A623':'#c4b5fd', opacity:0,
+            animation:`lp-spark ${p.dur}s ${p.del}s ease-in-out infinite`}}/>
       ))}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Fixed header — solidifies on scroll
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Shared overlay gradients ──────────────────────────────────────────────────
+const OVL = {
+  book:   'linear-gradient(180deg,rgba(4,4,12,.75) 0%,rgba(8,6,18,.28) 55%,rgba(4,4,12,.88) 100%)',
+  dark:   'linear-gradient(180deg,rgba(4,4,12,.82) 0%,rgba(10,8,24,.55) 55%,rgba(4,4,12,.92) 100%)',
+  gate:   'linear-gradient(180deg,rgba(4,4,12,.70) 0%,rgba(10,8,28,.20) 48%,rgba(4,4,12,.82) 100%)',
+}
 
-function Header({ onEnterApp }: { onEnterApp: () => void }) {
+// ─── Inline style helpers ──────────────────────────────────────────────────────
+const bgCover = (img:string, overlay:string):React.CSSProperties => ({
+  backgroundImage:`${overlay}, url(${img})`,
+  backgroundSize:'cover',
+  backgroundPosition:'center',
+  backgroundRepeat:'no-repeat',
+})
+
+// ─── Typography constants ──────────────────────────────────────────────────────
+const F = {
+  serif:  "'Playfair Display', serif",
+  sans:   "'Inter', sans-serif",
+  heroH:  'clamp(3rem, 7vw, 6rem)',
+  sectionH: 'clamp(2.4rem, 5.5vw, 4.8rem)',
+  slideH: 'clamp(1.8rem, 4vw, 3.4rem)',
+  body:   'clamp(1.05rem, 1.9vw, 1.25rem)',
+  eyebrow:'clamp(0.7rem, 1.2vw, 0.8rem)',
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HEADER
+// ══════════════════════════════════════════════════════════════════════════════
+function Header({ onEnterApp }: { onEnterApp:()=>void }) {
   const [solid, setSolid] = useState(false)
-  useEffect(() => {
-    const onScroll = () => setSolid(window.scrollY > 80)
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
+  useEffect(()=>{
+    const h = ()=>setSolid(window.scrollY>60)
+    window.addEventListener('scroll',h,{passive:true})
+    return ()=>window.removeEventListener('scroll',h)
+  },[])
   return (
-    <header
-      className="fixed top-0 left-0 right-0 z-[200] flex items-center justify-between px-6 md:px-14 py-5"
+    <header className="fixed inset-x-0 top-0 z-[500] flex items-center justify-between px-6 md:px-14 py-[18px]"
       style={{
-        background: solid ? 'rgba(8,8,20,0.85)' : 'transparent',
-        backdropFilter: solid ? 'blur(14px)' : 'none',
-        borderBottom: solid ? '1px solid rgba(245,166,35,0.10)' : '1px solid transparent',
-        transition: 'background 0.45s ease, border-color 0.45s ease',
-      }}
-    >
-      <div className="flex items-center gap-2.5 select-none cursor-default">
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(245,166,35,0.12)', border: '1px solid rgba(245,166,35,0.28)' }}
-        >
+        background:solid?'rgba(6,6,16,0.88)':'transparent',
+        backdropFilter:solid?'blur(16px)':'none',
+        borderBottom:solid?'1px solid rgba(245,166,35,0.10)':'1px solid transparent',
+        transition:'background .4s,border-color .4s',
+      }}>
+      <div className="flex items-center gap-2.5 select-none">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+          style={{background:'rgba(245,166,35,0.12)',border:'1px solid rgba(245,166,35,0.28)'}}>
           <BookOpen className="w-4 h-4 text-[#F5A623]" />
         </div>
-        <span
-          className="text-white font-bold text-lg tracking-wide"
-          style={{ fontFamily: "'Playfair Display', serif" }}
-        >
-          Scribis
-        </span>
+        <span className="text-white font-bold text-[1.1rem] tracking-wide" style={{fontFamily:F.serif}}>Scribis</span>
       </div>
-
-      <button
-        onClick={onEnterApp}
-        className="text-sm font-medium cursor-pointer transition-colors"
-        style={{
-          color: 'rgba(255,255,255,0.68)',
-          border: '1px solid rgba(255,255,255,0.18)',
-          borderRadius: 999,
-          padding: '8px 20px',
-          fontFamily: "'Inter', sans-serif",
-        }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLButtonElement).style.color = '#F5A623'
-          ;(e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(245,166,35,0.5)'
-        }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.68)'
-          ;(e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.18)'
-        }}
-      >
+      <button onClick={onEnterApp}
+        className="text-sm font-medium cursor-pointer"
+        style={{color:'rgba(255,255,255,.68)',border:'1px solid rgba(255,255,255,.18)',
+          borderRadius:999,padding:'8px 22px',fontFamily:F.sans,
+          transition:'color .2s,border-color .2s',background:'transparent'}}
+        onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.color='#F5A623';(e.currentTarget as HTMLElement).style.borderColor='rgba(245,166,35,.5)'}}
+        onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,.68)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,.18)'}}>
         Open App →
       </button>
     </header>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Progress dots (right side, desktop only)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ProgressDots({ active }: { active: number }) {
-  const scrollToSection = (i: number) => {
-    const target = i * SCROLL_PER_SECTION * window.innerHeight / 100
-    window.scrollTo({ top: target, behavior: 'smooth' })
-  }
+// ══════════════════════════════════════════════════════════════════════════════
+// PROGRESS BAR (top edge)
+// ══════════════════════════════════════════════════════════════════════════════
+function ProgressBar() {
+  const barRef = useRef<HTMLDivElement>(null)
+  useEffect(()=>{
+    const onScroll=()=>{
+      if(!barRef.current)return
+      const pct=window.scrollY/(document.body.scrollHeight-window.innerHeight)*100
+      barRef.current.style.width=`${pct}%`
+    }
+    window.addEventListener('scroll',onScroll,{passive:true})
+    return ()=>window.removeEventListener('scroll',onScroll)
+  },[])
   return (
-    <div className="fixed right-5 top-1/2 -translate-y-1/2 z-[200] hidden md:flex flex-col gap-3">
-      {SECTIONS.map((s, i) => (
-        <button
-          key={s.id}
-          onClick={() => scrollToSection(i)}
-          title={s.id}
-          className="cursor-pointer rounded-full transition-all duration-300"
+    <div className="fixed top-0 left-0 right-0 h-[3px] z-[600]" style={{background:'rgba(255,255,255,.06)'}}>
+      <div ref={barRef} className="h-full" style={{width:'0%',background:'linear-gradient(90deg,#F5A623,#F7C05A)',transition:'width .05s linear'}}/>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CTA BUTTON
+// ══════════════════════════════════════════════════════════════════════════════
+function CtaButton({ onClick, children, large }: { onClick:()=>void; children:React.ReactNode; large?:boolean }) {
+  return (
+    <button onClick={onClick} className="cursor-pointer font-bold"
+      style={{
+        padding: large?'16px 44px':'14px 36px',
+        borderRadius:999, background:'#F5A623', color:'#0f0f22',
+        fontFamily:F.sans, fontSize: large?17:15, border:'none',
+        animation:'lp-pulse 2.8s ease-in-out infinite',
+        transition:'background .2s,transform .15s',
+      }}
+      onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#F7C05A'}}
+      onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#F5A623'}}>
+      {children}
+    </button>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// § 1  HERO
+// ══════════════════════════════════════════════════════════════════════════════
+function Hero({ onEnterApp }: { onEnterApp:()=>void }) {
+  const heroRef = useRef<HTMLElement>(null)
+  useEffect(()=>{
+    if(!heroRef.current)return
+    const els = heroRef.current.querySelectorAll('.hl')
+    gsap.fromTo(els,{opacity:0,y:44},{opacity:1,y:0,duration:1.1,ease:'power3.out',stagger:.18,delay:.2})
+  },[])
+  return (
+    <section ref={heroRef} className="relative h-screen flex items-center justify-center overflow-hidden"
+      style={bgCover(IMGS.book, OVL.book)}>
+      {/* extra radial vignette */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{background:'radial-gradient(ellipse 85% 85% at 50% 50%,transparent 35%,rgba(4,4,12,.6) 100%)',zIndex:1}}/>
+      <Particles n={38}/>
+      <div className="relative z-10 flex flex-col items-center text-center px-6 max-w-5xl mx-auto">
+        <p className="hl mb-5 font-medium tracking-[.28em] uppercase"
+          style={{fontFamily:F.sans,fontSize:F.eyebrow,color:'rgba(245,166,35,.82)',opacity:0}}>
+          AI-powered interactive storytelling
+        </p>
+        <h1 className="hl font-bold leading-[1.04] mb-6"
+          style={{fontFamily:F.serif,fontSize:F.heroH,
+            textShadow:'0 3px 48px rgba(0,0,0,.95)',color:'#fff',opacity:0}}>
+          Every story begins<br/>
+          <em style={{color:'#F5A623',fontStyle:'italic'}}>with a single page.</em>
+        </h1>
+        <p className="hl mb-10 leading-relaxed"
+          style={{fontFamily:F.sans,fontSize:F.body,color:'rgba(255,255,255,.62)',maxWidth:520,opacity:0}}>
+          Write, branch, and explore — co-authored by AI, shaped entirely by you.
+        </p>
+        <div className="hl flex flex-wrap items-center justify-center gap-4" style={{opacity:0}}>
+          <CtaButton onClick={onEnterApp} large>Begin Your Story</CtaButton>
+          <button onClick={onEnterApp}
+            style={{background:'transparent',border:'none',fontFamily:F.sans,fontSize:14,
+              color:'rgba(255,255,255,.5)',cursor:'pointer',textDecoration:'underline',
+              textUnderlineOffset:4,textDecorationColor:'rgba(255,255,255,.22)'}}
+            onMouseEnter={e=>(e.currentTarget as HTMLElement).style.color='#fff'}
+            onMouseLeave={e=>(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,.5)'}>
+            Sign in →
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// § 2  PROBLEM
+// ══════════════════════════════════════════════════════════════════════════════
+function Problem() {
+  const secRef = useRef<HTMLElement>(null)
+  useEffect(()=>{
+    if(!secRef.current)return
+    const els=secRef.current.querySelectorAll('.reveal')
+    gsap.fromTo(els,{opacity:0,y:50},{opacity:1,y:0,duration:.9,ease:'power3.out',stagger:.14,
+      scrollTrigger:{trigger:secRef.current,start:'top 75%',toggleActions:'play none none reverse'}})
+  },[])
+  return (
+    <section ref={secRef} className="relative py-32 md:py-44 flex items-center justify-center overflow-hidden"
+      style={{background:'linear-gradient(180deg,#06060f 0%,#0d0d22 50%,#06060f 100%)'}}>
+      <Particles n={18}/>
+      <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
+        <p className="reveal mb-6 font-medium tracking-[.28em] uppercase"
+          style={{fontFamily:F.sans,fontSize:F.eyebrow,color:'rgba(245,166,35,.75)',opacity:0}}>
+          The challenge
+        </p>
+        <h2 className="reveal font-bold leading-[1.08] mb-8"
+          style={{fontFamily:F.serif,fontSize:F.sectionH,color:'#fff',
+            textShadow:'0 2px 32px rgba(0,0,0,.8)',opacity:0}}>
+          Stories are hard to write.<br/>
+          <em style={{color:'rgba(245,166,35,.9)',fontStyle:'italic'}}>
+            Branching stories are even harder.
+          </em>
+        </h2>
+        <p className="reveal leading-relaxed mx-auto"
+          style={{fontFamily:F.sans,fontSize:F.body,color:'rgba(255,255,255,.55)',maxWidth:580,opacity:0}}>
+          Every choice your character makes should lead somewhere meaningful. Tracking threads,
+          keeping characters consistent, making it all hang together — it's exhausting before you've
+          written a single scene.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// § 3  SOLUTION
+// ══════════════════════════════════════════════════════════════════════════════
+function Solution() {
+  const secRef = useRef<HTMLElement>(null)
+  useEffect(()=>{
+    if(!secRef.current)return
+    const els=secRef.current.querySelectorAll('.reveal')
+    gsap.fromTo(els,{opacity:0,y:50},{opacity:1,y:0,duration:.9,ease:'power3.out',stagger:.14,
+      scrollTrigger:{trigger:secRef.current,start:'top 75%',toggleActions:'play none none reverse'}})
+  },[])
+  return (
+    <section ref={secRef} className="relative py-32 md:py-44 flex items-center justify-center overflow-hidden"
+      style={{background:'linear-gradient(180deg,#06060f 0%,#080818 100%)'}}>
+      <Particles n={22}/>
+      <div className="relative z-10 max-w-4xl mx-auto px-6 text-center">
+        <p className="reveal mb-6 font-medium tracking-[.28em] uppercase"
+          style={{fontFamily:F.sans,fontSize:F.eyebrow,color:'rgba(245,166,35,.75)',opacity:0}}>
+          The solution
+        </p>
+        <h2 className="reveal font-bold leading-[1.08] mb-8"
+          style={{fontFamily:F.serif,fontSize:F.sectionH,color:'#fff',
+            textShadow:'0 2px 32px rgba(0,0,0,.8)',opacity:0}}>
+          Scribis is the AI forge<br/>
+          <em style={{color:'rgba(245,166,35,.9)',fontStyle:'italic'}}>
+            for interactive narratives.
+          </em>
+        </h2>
+        <p className="reveal leading-relaxed mx-auto"
+          style={{fontFamily:F.sans,fontSize:F.body,color:'rgba(255,255,255,.55)',maxWidth:560,opacity:0}}>
+          Describe a world. Add characters with real motivations. Then play — choosing what happens
+          next while the AI keeps everything coherent, surprising, and alive.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// § 4  FEATURES
+// ══════════════════════════════════════════════════════════════════════════════
+const FEATURES = [
+  { icon: GitBranch, title:'Branching Narratives',
+    body:'Every choice forks the story. Revisit any savepoint and explore the road not taken.' },
+  { icon: Wand2,     title:'AI Scene Generation',
+    body:'Characters, dialogue, and consequences written in seconds — in your voice, your world.' },
+  { icon: Bookmark,  title:'Save & Revisit',
+    body:'Bookmark any moment. Branch from any scene. Your entire story tree, always at hand.' },
+] as const
+
+function Features() {
+  const secRef = useRef<HTMLElement>(null)
+  useEffect(()=>{
+    if(!secRef.current)return
+    const cards=secRef.current.querySelectorAll('.feat-card')
+    gsap.fromTo(cards,{opacity:0,y:60},{opacity:1,y:0,duration:.8,ease:'power3.out',stagger:.16,
+      scrollTrigger:{trigger:secRef.current,start:'top 70%',toggleActions:'play none none reverse'}})
+    const heading=secRef.current.querySelectorAll('.feat-head')
+    gsap.fromTo(heading,{opacity:0,y:36},{opacity:1,y:0,duration:.8,ease:'power3.out',stagger:.12,
+      scrollTrigger:{trigger:secRef.current,start:'top 78%',toggleActions:'play none none reverse'}})
+  },[])
+  return (
+    <section ref={secRef}
+      style={{background:'linear-gradient(180deg,#06060f 0%,#0c0c1e 50%,#06060f 100%)',
+        padding:'clamp(4rem,8vw,7rem) 24px'}}>
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-16 md:mb-20">
+          <p className="feat-head mb-5 font-medium tracking-[.28em] uppercase"
+            style={{fontFamily:F.sans,fontSize:F.eyebrow,color:'rgba(245,166,35,.75)',opacity:0}}>
+            What Scribis does
+          </p>
+          <h2 className="feat-head font-bold leading-[1.08]"
+            style={{fontFamily:F.serif,fontSize:F.sectionH,color:'#fff',
+              textShadow:'0 2px 28px rgba(0,0,0,.8)',opacity:0}}>
+            Built for stories that<br/>
+            <em style={{color:'#F5A623',fontStyle:'italic'}}>breathe and branch.</em>
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+          {FEATURES.map(({icon:Icon,title,body})=>(
+            <div key={title} className="feat-card rounded-2xl p-8 md:p-10 flex flex-col gap-5"
+              style={{background:'rgba(255,255,255,.036)',border:'1px solid rgba(245,166,35,.14)',
+                opacity:0,backdropFilter:'blur(6px)'}}>
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                style={{background:'rgba(245,166,35,.12)',border:'1px solid rgba(245,166,35,.25)'}}>
+                <Icon className="w-5 h-5 text-[#F5A623]" />
+              </div>
+              <h3 className="font-bold" style={{fontFamily:F.serif,fontSize:'clamp(1.25rem,2.2vw,1.55rem)',color:'#fff'}}>
+                {title}
+              </h3>
+              <p className="leading-relaxed" style={{fontFamily:F.sans,fontSize:'clamp(.95rem,1.6vw,1.05rem)',color:'rgba(255,255,255,.52)'}}>
+                {body}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// § 5  NARRATIVE JOURNEY  (pinned crossfade)
+// ══════════════════════════════════════════════════════════════════════════════
+function NarrativeJourney() {
+  const pinWrap  = useRef<HTMLDivElement>(null)   // the pinned viewport
+  const slidesEl = useRef<(HTMLDivElement|null)[]>([])
+  const textEls  = useRef<(HTMLDivElement|null)[]>([])
+
+  useEffect(()=>{
+    const pin = pinWrap.current
+    if(!pin) return
+
+    // Total scroll distance = number of transitions × 200vh
+    // (SLIDES.length - 1 transitions)
+    const scrollDist = (SLIDES.length - 1) * 200  // in percent of vh: 800vh total
+
+    // Pin the wrapper for scrollDist worth of scrolling
+    const pinST = ScrollTrigger.create({
+      trigger: pin,
+      start: 'top top',
+      end:   `+=${scrollDist}vh`,
+      pin:   true,
+      pinSpacing: true,
+      anticipatePin: 1,
+    })
+
+    // For each transition i→i+1: crossfade slide[i] out, slide[i+1] in
+    const transitions: ScrollTrigger[] = []
+    for(let i = 0; i < SLIDES.length - 1; i++) {
+      const startOffset = i * 200         // vh offset from pin start
+      const endOffset   = startOffset + 200
+
+      // Create a timeline for this crossfade
+      const tl = gsap.timeline({ paused: true })
+
+      // Outgoing: fade image out + text up
+      tl.to(slidesEl.current[i],   { opacity: 0, duration: .5, ease:'power2.inOut' }, 0)
+      tl.to(textEls.current[i],    { opacity: 0, y: -30, duration: .4, ease:'power2.in' }, 0)
+
+      // Incoming: fade image in + text slides up from below
+      tl.fromTo(slidesEl.current[i+1],
+        { opacity: 0 },
+        { opacity: 1, duration: .6, ease:'power2.out' }, .3)
+      tl.fromTo(textEls.current[i+1],
+        { opacity: 0, y: 44 },
+        { opacity: 1, y: 0, duration: .65, ease:'power3.out' }, .4)
+
+      const st = ScrollTrigger.create({
+        trigger: pin,
+        start:   `top+=${startOffset}vh top`,
+        end:     `top+=${endOffset}vh top`,
+        scrub:   1,
+        animation: tl,
+      })
+      transitions.push(st)
+    }
+
+    // Animate first slide text in on pin enter
+    if(textEls.current[0]) {
+      gsap.fromTo(textEls.current[0].querySelectorAll('.sline'),
+        {opacity:0,y:40},{opacity:1,y:0,duration:.9,ease:'power3.out',stagger:.14,
+          scrollTrigger:{trigger:pin,start:'top 80%',toggleActions:'play none none reverse'}})
+    }
+
+    return ()=>{
+      pinST.kill()
+      transitions.forEach(t=>t.kill())
+    }
+  },[])
+
+  return (
+    /* The scroll-track wrapper — pinSpacing adds the extra height GSAP needs */
+    <div ref={pinWrap} className="relative overflow-hidden" style={{height:'100vh'}}>
+      {SLIDES.map((s, i)=>(
+        <div key={i}
+          ref={el=>{ slidesEl.current[i]=el }}
+          className="absolute inset-0"
           style={{
-            width:  i === active ? 8 : 5,
-            height: i === active ? 8 : 5,
-            background: i === active ? '#F5A623' : 'rgba(255,255,255,0.22)',
-            border: i === active ? '1px solid rgba(245,166,35,0.55)' : '1px solid rgba(255,255,255,0.15)',
-          }}
-        />
+            ...bgCover(s.img, i===0 ? OVL.book : OVL.dark),
+            opacity: i === 0 ? 1 : 0,   // first slide visible, rest hidden
+            zIndex: SLIDES.length - i,   // first slide on top initially
+          }}>
+          {/* extra vignette */}
+          <div className="absolute inset-0 pointer-events-none"
+            style={{background:'radial-gradient(ellipse 90% 90% at 50% 50%,transparent 30%,rgba(4,4,12,.55) 100%)',zIndex:1}}/>
+          <Particles n={i===4?50:24}/>
+
+          {/* Text */}
+          <div ref={el=>{ textEls.current[i]=el }}
+            className="absolute inset-0 flex flex-col items-center justify-center text-center px-6"
+            style={{zIndex:10, opacity: i === 0 ? 0 : 0 /* GSAP controls all */}}>
+            <p className="sline font-bold italic"
+              style={{fontFamily:F.serif,fontSize:F.slideH,color:'#fff',
+                textShadow:'0 3px 48px rgba(0,0,0,.95)',maxWidth:700,lineHeight:1.12,
+                letterSpacing:'-.01em'}}>
+              {s.line}
+            </p>
+            <div className="sline mt-6 mx-auto h-[1px]"
+              style={{width:'48%',background:'linear-gradient(90deg,transparent,rgba(245,166,35,.55),transparent)'}}/>
+          </div>
+        </div>
       ))}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Footer
-// ─────────────────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// § 6  FINAL CTA
+// ══════════════════════════════════════════════════════════════════════════════
+function FinalCTA({ onEnterApp }: { onEnterApp:()=>void }) {
+  const secRef = useRef<HTMLElement>(null)
+  useEffect(()=>{
+    if(!secRef.current)return
+    const els=secRef.current.querySelectorAll('.reveal')
+    gsap.fromTo(els,{opacity:0,y:50},{opacity:1,y:0,duration:.9,ease:'power3.out',stagger:.14,
+      scrollTrigger:{trigger:secRef.current,start:'top 72%',toggleActions:'play none none reverse'}})
+  },[])
+  return (
+    <section ref={secRef} className="relative h-screen flex items-center justify-center overflow-hidden"
+      style={bgCover(IMGS.gate, OVL.gate)}>
+      {/* golden glow at gate position */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{background:'radial-gradient(ellipse 50% 62% at 50% 44%,rgba(245,166,35,.08) 0%,transparent 70%)',zIndex:1}}/>
+      <Particles n={50}/>
+      <div className="relative z-10 flex flex-col items-center text-center px-6 max-w-4xl mx-auto">
+        <p className="reveal mb-5 font-medium tracking-[.28em] uppercase"
+          style={{fontFamily:F.sans,fontSize:F.eyebrow,color:'rgba(245,166,35,.78)',opacity:0}}>
+          The beginning awaits
+        </p>
+        <h2 className="reveal font-bold leading-[1.07] mb-6"
+          style={{fontFamily:F.serif,fontSize:F.sectionH,color:'#fff',
+            textShadow:'0 3px 52px rgba(0,0,0,.95)',opacity:0}}>
+          Your story<br/>
+          <em style={{color:'#F5A623',fontStyle:'italic'}}>starts here.</em>
+        </h2>
+        <p className="reveal leading-relaxed mx-auto mb-10"
+          style={{fontFamily:F.sans,fontSize:F.body,color:'rgba(255,255,255,.52)',maxWidth:480,opacity:0}}>
+          Step through the gate. Every choice you make writes the next chapter.
+        </p>
+        <div className="reveal flex flex-wrap items-center justify-center gap-4" style={{opacity:0}}>
+          <CtaButton onClick={onEnterApp} large>Start Writing Free</CtaButton>
+          <button onClick={onEnterApp}
+            style={{padding:'14px 28px',borderRadius:999,background:'transparent',
+              border:'1px solid rgba(255,255,255,.20)',fontFamily:F.sans,fontSize:14,
+              color:'rgba(255,255,255,.52)',cursor:'pointer',transition:'color .2s,border-color .2s'}}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.color='#fff';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,.5)'}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,.52)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,.20)'}}>
+            Sign in →
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
 
+// ══════════════════════════════════════════════════════════════════════════════
+// § 7  FOOTER
+// ══════════════════════════════════════════════════════════════════════════════
 function Footer() {
   return (
-    <footer
-      className="relative z-[150] flex flex-col md:flex-row items-center justify-between gap-5 px-8 md:px-14 py-9"
-      style={{ background: '#07070f', borderTop: '1px solid rgba(255,255,255,0.055)' }}
-    >
+    <footer className="flex flex-col md:flex-row items-center justify-between gap-5 px-8 md:px-14 py-9"
+      style={{background:'#040408',borderTop:'1px solid rgba(255,255,255,.055)'}}>
       <div className="flex items-center gap-2.5">
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(245,166,35,0.10)', border: '1px solid rgba(245,166,35,0.22)' }}
-        >
-          <BookOpen className="w-3.5 h-3.5 text-[#F5A623]" />
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+          style={{background:'rgba(245,166,35,.10)',border:'1px solid rgba(245,166,35,.22)'}}>
+          <BookOpen className="w-3.5 h-3.5 text-[#F5A623]"/>
         </div>
-        <span
-          className="font-semibold text-base"
-          style={{ color: 'rgba(255,255,255,0.62)', fontFamily: "'Playfair Display', serif" }}
-        >
-          Scribis
-        </span>
+        <span className="font-semibold text-base"
+          style={{color:'rgba(255,255,255,.6)',fontFamily:F.serif}}>Scribis</span>
       </div>
-      <p style={{ color: 'rgba(255,255,255,0.22)', fontSize: 13, fontFamily: "'Inter', sans-serif" }}>
-        Co-write your world with AI.
-      </p>
+      <p style={{color:'rgba(255,255,255,.2)',fontSize:13,fontFamily:F.sans}}>Co-write your world with AI.</p>
       <nav className="flex gap-6">
-        {['Privacy', 'Terms', 'Contact'].map(l => (
-          <a
-            key={l}
-            href="#"
-            style={{ color: 'rgba(255,255,255,0.25)', fontSize: 13, fontFamily: "'Inter', sans-serif" }}
-            onMouseEnter={e => ((e.target as HTMLAnchorElement).style.color = 'rgba(255,255,255,0.65)')}
-            onMouseLeave={e => ((e.target as HTMLAnchorElement).style.color = 'rgba(255,255,255,0.25)')}
-          >
+        {['Privacy','Terms','Contact'].map(l=>(
+          <a key={l} href="#" style={{color:'rgba(255,255,255,.24)',fontSize:13,fontFamily:F.sans,transition:'color .2s'}}
+            onMouseEnter={e=>((e.target as HTMLAnchorElement).style.color='rgba(255,255,255,.65)')}
+            onMouseLeave={e=>((e.target as HTMLAnchorElement).style.color='rgba(255,255,255,.24)')}>
             {l}
           </a>
         ))}
@@ -255,428 +546,43 @@ function Footer() {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main LandingPage
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ══════════════════════════════════════════════════════════════════════════════
+// PAGE ROOT
+// ══════════════════════════════════════════════════════════════════════════════
 export function LandingPage() {
-  const navigate   = useNavigate()
-  const wrapRef    = useRef<HTMLDivElement>(null)
-  const trackRef   = useRef<HTMLDivElement>(null)
-  const sectRefs   = useRef<(HTMLDivElement | null)[]>([])
-  const textRefs   = useRef<(HTMLDivElement | null)[]>([])
-  const [active, setActive] = useState(0)
+  const navigate = useNavigate()
+  const goToApp  = () => navigate('/app')
 
-  const goToApp = () => navigate('/app')
-
-  // ── GSAP setup ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const ctx = gsap.context(() => {
-
-      // ── 1. Hero: immediate load animation (no scroll trigger) ──────────────
-      const heroText = textRefs.current[0]
-      if (heroText) {
-        gsap.fromTo(
-          heroText.querySelectorAll('.reveal-line'),
-          { opacity: 0, y: 38 },
-          {
-            opacity: 1,
-            y: 0,
-            duration: 1.1,
-            ease: 'power3.out',
-            stagger: 0.18,
-            delay: 0.25,
-          },
-        )
-      }
-
-      // ── 2. Each scene section: fade in bg + slide up text as section enters ─
-      //    We set initial opacity: 0 on sections 1-4 in the DOM; hero (#0) starts visible.
-      SECTIONS.forEach((_, i) => {
-        if (i === 0) return // hero is always visible
-
-        const section = sectRefs.current[i]
-        const text    = textRefs.current[i]
-        if (!section || !text) return
-
-        // Build a timeline for this section's reveal
-        const tl = gsap.timeline({ paused: true })
-
-        // Section fades in
-        tl.fromTo(section,
-          { opacity: 0 },
-          { opacity: 1, duration: 0.6, ease: 'power2.out' },
-          0,
-        )
-
-        // Text lines slide up and fade in, staggered
-        tl.fromTo(
-          text.querySelectorAll('.reveal-line'),
-          { opacity: 0, y: 42 },
-          { opacity: 1, y: 0, duration: 0.9, ease: 'power3.out', stagger: 0.16 },
-          0.15,
-        )
-
-        // Decorative gold line draws in (if present)
-        const goldLine = text.querySelector('.gold-line') as HTMLElement | null
-        if (goldLine) {
-          tl.fromTo(goldLine,
-            { scaleX: 0, opacity: 0 },
-            { scaleX: 1, opacity: 1, duration: 0.7, ease: 'power2.out', transformOrigin: 'center' },
-            0.5,
-          )
-        }
-
-        // Attach ScrollTrigger — scrub keeps it in sync with scroll position
-        ScrollTrigger.create({
-          trigger: trackRef.current,
-          start: `${i * SCROLL_PER_SECTION - 30}vh top`,
-          end:   `${i * SCROLL_PER_SECTION + 60}vh top`,
-          scrub: 1.2,
-          animation: tl,
-          onEnter:      () => setActive(i),
-          onEnterBack:  () => setActive(i),
-          onLeaveBack:  () => i > 1 && setActive(i - 1),
-        })
-      })
-
-      // ── 3. Hero leaves: fade hero out as scene-1 approaches ────────────────
-      const heroSection = sectRefs.current[0]
-      if (heroSection) {
-        gsap.to(heroSection, {
-          opacity: 0,
-          ease: 'power1.inOut',
-          scrollTrigger: {
-            trigger: trackRef.current,
-            start: `${SCROLL_PER_SECTION * 0.5}vh top`,
-            end:   `${SCROLL_PER_SECTION * 0.9}vh top`,
-            scrub: 1.2,
-            onLeave:     () => setActive(1),
-            onEnterBack: () => setActive(0),
-          },
-        })
-      }
-
-    }, wrapRef)
-
-    return () => {
-      ctx.revert()
-      ScrollTrigger.getAll().forEach(t => t.kill())
-    }
-  }, [])
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Inline styles (no Tailwind for layout-critical values to avoid purging)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const totalScrollHeight = `${SECTIONS.length * SCROLL_PER_SECTION + 100}vh`
+  useEffect(()=>{
+    // Ensure no browser smooth-scroll fighting GSAP
+    document.documentElement.style.scrollBehavior = 'auto'
+    return ()=>{ document.documentElement.style.scrollBehavior = '' }
+  },[])
 
   return (
     <>
-      {/* ── Global keyframes injected once ─────────────────────────────────── */}
       <style>{`
-        @keyframes spark {
-          0%   { transform: translateY(0)   scale(0.7); opacity: 0; }
-          40%  { opacity: 0.9; }
-          100% { transform: translateY(-32px) scale(1.15); opacity: 0; }
+        @keyframes lp-spark {
+          0%   { transform:translateY(0) scale(.7); opacity:0; }
+          40%  { opacity:.88; }
+          100% { transform:translateY(-34px) scale(1.15); opacity:0; }
         }
-        @keyframes ctaPulse {
-          0%,100% { box-shadow: 0 0 22px 4px rgba(245,166,35,0.38); }
-          50%      { box-shadow: 0 0 44px 10px rgba(245,166,35,0.68); }
+        @keyframes lp-pulse {
+          0%,100% { box-shadow:0 0 20px 3px rgba(245,166,35,.35); }
+          50%      { box-shadow:0 0 44px 10px rgba(245,166,35,.65); }
         }
-        html { scroll-behavior: auto; }   /* let GSAP own scrolling */
       `}</style>
 
-      <div ref={wrapRef} style={{ background: '#07070f', color: '#fff' }}>
-
-        <Header onEnterApp={goToApp} />
-        <ProgressDots active={active} />
-
-        {/* ── Sticky viewport viewport stack ─────────────────────────────────
-             The outer div is the true scroll track (tall).
-             The inner wrapper is sticky so it stays in view — sections are
-             absolutely positioned inside it, all occupying the same 100vh slot.
-        ────────────────────────────────────────────────────────────────────── */}
-        <div
-          ref={trackRef}
-          style={{ height: totalScrollHeight }}
-        >
-          <div
-            style={{
-              position: 'sticky',
-              top: 0,
-              height: '100vh',
-              overflow: 'hidden',
-            }}
-          >
-            {SECTIONS.map((sec, i) => {
-              const isHero   = i === 0
-              const isEnding = sec.isCta
-
-              return (
-                <div
-                  key={sec.id}
-                  ref={el => { sectRefs.current[i] = el }}
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    // Hero starts fully visible; all others start hidden
-                    opacity: isHero ? 1 : 0,
-                    // Stack order: later sections on top so they reveal over earlier ones
-                    zIndex: i + 1,
-                  }}
-                >
-                  {/* ── Background image ─────────────────────────────────── */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      backgroundImage: `url(${sec.image})`,
-                      backgroundSize:     'cover',
-                      backgroundPosition: 'center',
-                      backgroundRepeat:   'no-repeat',
-                    }}
-                  />
-
-                  {/* ── Dark gradient overlay ─────────────────────────────── */}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      background: sec.overlay,
-                      zIndex: 1,
-                    }}
-                  />
-
-                  {/* ── Particles ────────────────────────────────────────── */}
-                  <div style={{ position: 'absolute', inset: 0, zIndex: 2 }}>
-                    <Particles count={sec.particles} />
-                  </div>
-
-                  {/* ── Text content ─────────────────────────────────────── */}
-                  <div
-                    ref={el => { textRefs.current[i] = el }}
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      zIndex: 3,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: isEnding ? 'center' : 'center',
-                      textAlign: 'center',
-                      padding: '0 24px',
-                    }}
-                  >
-                    {/* Eyebrow */}
-                    {sec.eyebrow && (
-                      <p
-                        className="reveal-line"
-                        style={{
-                          fontFamily: "'Inter', sans-serif",
-                          fontSize: 12,
-                          fontWeight: 500,
-                          letterSpacing: '0.28em',
-                          textTransform: 'uppercase',
-                          color: 'rgba(245,166,35,0.78)',
-                          marginBottom: 22,
-                        }}
-                      >
-                        {sec.eyebrow}
-                      </p>
-                    )}
-
-                    {/* Headline */}
-                    <h2
-                      className="reveal-line"
-                      style={{
-                        fontFamily: "'Playfair Display', serif",
-                        fontSize: isHero
-                          ? 'clamp(2.2rem, 6.5vw, 5.2rem)'
-                          : 'clamp(1.9rem, 4.8vw, 4rem)',
-                        fontWeight: 700,
-                        fontStyle: isHero ? 'normal' : 'italic',
-                        lineHeight: 1.07,
-                        color: '#fff',
-                        textShadow: '0 2px 40px rgba(0,0,0,0.9)',
-                        maxWidth: 780,
-                        whiteSpace: 'pre-line',
-                        marginBottom: 0,
-                      }}
-                    >
-                      {/* Gold-tinted last word/phrase on hero + ending */}
-                      {isHero ? (
-                        <>
-                          Every story begins{'\n'}
-                          <em style={{ color: '#F5A623', fontStyle: 'italic' }}>
-                            with a single page.
-                          </em>
-                        </>
-                      ) : isEnding ? (
-                        <>
-                          Your story{'\n'}
-                          <em style={{ color: '#F5A623', fontStyle: 'italic' }}>
-                            starts here.
-                          </em>
-                        </>
-                      ) : (
-                        sec.headline
-                      )}
-                    </h2>
-
-                    {/* Gold decorative line (scene sections only) */}
-                    {!isHero && !isEnding && (
-                      <div
-                        className="gold-line"
-                        style={{
-                          width: '52%',
-                          height: 1,
-                          margin: '28px auto 0',
-                          background: 'linear-gradient(to right, transparent, rgba(245,166,35,0.55), transparent)',
-                          transformOrigin: 'center',
-                        }}
-                      />
-                    )}
-
-                    {/* Sub-headline */}
-                    {sec.sub && (
-                      <p
-                        className="reveal-line"
-                        style={{
-                          fontFamily: "'Inter', sans-serif",
-                          fontSize: 'clamp(0.95rem, 1.8vw, 1.15rem)',
-                          color: 'rgba(255,255,255,0.58)',
-                          lineHeight: 1.7,
-                          maxWidth: 480,
-                          marginTop: 22,
-                          whiteSpace: 'pre-line',
-                        }}
-                      >
-                        {sec.sub}
-                      </p>
-                    )}
-
-                    {/* CTAs — hero */}
-                    {isHero && (
-                      <div
-                        className="reveal-line"
-                        style={{ marginTop: 38, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}
-                      >
-                        <button
-                          onClick={goToApp}
-                          style={{
-                            padding: '14px 36px',
-                            borderRadius: 999,
-                            background: '#F5A623',
-                            color: '#1A1A3E',
-                            fontFamily: "'Inter', sans-serif",
-                            fontWeight: 700,
-                            fontSize: 15,
-                            border: 'none',
-                            cursor: 'pointer',
-                            animation: 'ctaPulse 2.8s ease-in-out infinite',
-                          }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.background = '#F7C05A')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.background = '#F5A623')}
-                        >
-                          Begin Your Story
-                        </button>
-                        <button
-                          onClick={goToApp}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'rgba(255,255,255,0.52)',
-                            fontFamily: "'Inter', sans-serif",
-                            fontSize: 14,
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                            textUnderlineOffset: 4,
-                            textDecorationColor: 'rgba(255,255,255,0.22)',
-                          }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.color = '#fff')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.52)')}
-                        >
-                          Sign in →
-                        </button>
-                      </div>
-                    )}
-
-                    {/* CTAs — ending */}
-                    {isEnding && (
-                      <>
-                        <p
-                          className="reveal-line"
-                          style={{
-                            fontFamily: "'Inter', sans-serif",
-                            fontSize: 'clamp(0.95rem, 1.8vw, 1.1rem)',
-                            color: 'rgba(255,255,255,0.52)',
-                            lineHeight: 1.7,
-                            maxWidth: 440,
-                            marginTop: 20,
-                            whiteSpace: 'pre-line',
-                          }}
-                        >
-                          {sec.sub}
-                        </p>
-                        <div
-                          className="reveal-line"
-                          style={{ marginTop: 36, display: 'flex', gap: 14, flexWrap: 'wrap', justifyContent: 'center' }}
-                        >
-                          <button
-                            onClick={goToApp}
-                            style={{
-                              padding: '14px 40px',
-                              borderRadius: 999,
-                              background: 'linear-gradient(135deg, #F5A623, #F7C05A)',
-                              color: '#1A1A3E',
-                              fontFamily: "'Inter', sans-serif",
-                              fontWeight: 700,
-                              fontSize: 15,
-                              border: 'none',
-                              cursor: 'pointer',
-                              animation: 'ctaPulse 2.4s ease-in-out infinite',
-                            }}
-                            onMouseEnter={e => ((e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1.08)')}
-                            onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.filter = 'none')}
-                          >
-                            Start Writing Free
-                          </button>
-                          <button
-                            onClick={goToApp}
-                            style={{
-                              padding: '14px 28px',
-                              borderRadius: 999,
-                              background: 'transparent',
-                              color: 'rgba(255,255,255,0.52)',
-                              border: '1px solid rgba(255,255,255,0.20)',
-                              fontFamily: "'Inter', sans-serif",
-                              fontSize: 14,
-                              cursor: 'pointer',
-                            }}
-                            onMouseEnter={e => {
-                              (e.currentTarget as HTMLButtonElement).style.color = '#fff'
-                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.5)'
-                            }}
-                            onMouseLeave={e => {
-                              (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.52)'
-                              ;(e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.20)'
-                            }}
-                          >
-                            Sign in →
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* ── Footer sits below the scroll track ─────────────────────────── */}
-        <Footer />
+      <div style={{background:'#06060f',color:'#fff',overflowX:'hidden'}}>
+        <ProgressBar/>
+        <Header onEnterApp={goToApp}/>
+        <Hero        onEnterApp={goToApp}/>
+        <Problem/>
+        <Solution/>
+        <Features/>
+        <NarrativeJourney/>
+        <FinalCTA    onEnterApp={goToApp}/>
+        <Footer/>
       </div>
     </>
   )
