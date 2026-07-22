@@ -1,25 +1,3 @@
-/**
- * Scribis — Landing Page (Redesign)
- *
- * Section map:
- *  §1  Hero            book.png full-screen — fade-in + scale on load
- *  §2  Brand Intro     magazine.jpg — editorial asymmetric layout, split-text reveal
- *  §3  Narrative       5 pinned slides with VARIED transitions per slide
- *                      book(scale+glow) | rise(slide-up) | glide(h-reveal) |
- *                      arrive(mask-expand) | gate(bloom)
- *  §4  Timeline        Horizontal scroll timeline — 6 feature nodes
- *  §5  Social Proof    Simple fade-in trust bar
- *  §6  Final CTA       gate.jpg bloom reveal
- *  §7  Footer
- *
- * Scroll implementation:
- *  - Narrative slides: pin:true, end:"+=200%", scrub:1.5, anticipatePin:1
- *  - Each slide has a UNIQUE entrance animation (not all fade-in)
- *  - Horizontal timeline: pinned panel, horizontal translate driven by scrub
- *  - All cleanup: st.kill() + tl.kill() on unmount (StrictMode safe)
- *  - browser smooth-scroll disabled at root to prevent fighting GSAP scrub
- */
-
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import gsap from 'gsap'
@@ -30,54 +8,43 @@ gsap.registerPlugin(ScrollTrigger)
 // ─── Assets ───────────────────────────────────────────────────────────────────
 const IMGS = {
   book:    '/images/landing/book.png',
-  rise:    '/images/landing/fae_rise.png',
-  glide:   '/images/landing/fae_glide.png',
-  arrive:  '/images/landing/fae_arrive.jpeg',
+  path:    '/images/landing/path.jpg',
+  rise:    '/images/landing/spark.jpeg',
+  fall:    '/images/landing/fall.jpg',
+  spark:   '/images/landing/arrive.jpeg',
   gate:    '/images/landing/gate.jpg',
   magazine:'/images/landing/magazine.jpg',
 } as const
 
-// ─── Narrative scenes — 5 slides, each with a distinct transition type ────────
+// ─── Narrative scenes — 4 slides, each with a distinct transition type ────────
 const SCENES = [
   {
-    img:        IMGS.book,
-    eyebrow:    'The Beginning',
+    img:        IMGS.path,
     line:       'Every story begins\nwith a single page.',
-    overlay:    'linear-gradient(180deg,rgba(3,3,10,.82) 0%,rgba(6,5,14,.30) 52%,rgba(3,3,10,.92) 100%)',
-    transition: 'scale',   // scale reveal + glow pulse
+    overlay:    'linear-gradient(180deg,rgba(3,3,10,.72) 0%,rgba(6,5,14,.28) 52%,rgba(3,3,10,.88) 100%)',
+    transition: 'scale',
     particles:  20,
   },
   {
     img:        IMGS.rise,
-    eyebrow:    'The Spark',
     line:       'The spark\nof creation...',
     overlay:    'linear-gradient(180deg,rgba(3,3,10,.70) 0%,rgba(10,6,4,.22) 52%,rgba(3,3,10,.85) 100%)',
-    transition: 'slide-up', // slides up from bottom
+    transition: 'slide-up',
     particles:  22,
   },
   {
-    img:        IMGS.glide,
-    eyebrow:    'The Journey',
+    img:        IMGS.fall,
     line:       'Every choice leads\nsomewhere new.',
     overlay:    'linear-gradient(180deg,rgba(3,3,10,.66) 0%,rgba(8,6,20,.18) 52%,rgba(3,3,10,.80) 100%)',
-    transition: 'slide-left', // slides in from left
+    transition: 'slide-left',
     particles:  24,
   },
   {
-    img:        IMGS.arrive,
-    eyebrow:    'The Arrival',
+    img:        IMGS.spark,
     line:       'The destination\ndraws near...',
     overlay:    'linear-gradient(180deg,rgba(3,3,10,.58) 0%,rgba(10,8,22,.20) 52%,rgba(3,3,10,.88) 100%)',
-    transition: 'mask',    // mask expands outward from center
+    transition: 'mask',
     particles:  28,
-  },
-  {
-    img:        IMGS.gate,
-    eyebrow:    'The Gate',
-    line:       'Your story\nstarts here.',
-    overlay:    'linear-gradient(180deg,rgba(3,3,10,.62) 0%,rgba(8,6,20,.16) 48%,rgba(3,3,10,.82) 100%)',
-    transition: 'bloom',   // blur → focus, slow fade
-    particles:  34,
     isLast:     true,
   },
 ] as const
@@ -178,6 +145,7 @@ function Header() {
           Scribis
         </span>
       </div>
+      {/* Subtle CTA link — not a full Sign In button */}
     </header>
   )
 }
@@ -427,11 +395,10 @@ function BrandIntro() {
 //
 //  All use pin:true, end:"+=200%", scrub:1.5, anticipatePin:1
 // ══════════════════════════════════════════════════════════════════════════════
-type TransitionType = 'scale' | 'slide-up' | 'slide-left' | 'mask' | 'bloom'
+type TransitionType = 'scale' | 'slide-up' | 'slide-left' | 'mask'
 
 interface SceneProps {
   img:        string
-  eyebrow:    string
   line:       string
   overlay:    string
   transition: TransitionType
@@ -439,7 +406,7 @@ interface SceneProps {
   isLast?:    boolean
 }
 
-function NarrativeScene({ img, eyebrow, line, overlay, transition, particles, isLast }: SceneProps) {
+function NarrativeScene({ img, line, overlay, transition, particles, isLast }: SceneProps) {
   const secRef  = useRef<HTMLElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
   const imgRef  = useRef<HTMLDivElement>(null)
@@ -485,18 +452,6 @@ function NarrativeScene({ img, eyebrow, line, overlay, transition, particles, is
         { opacity: 1, ease: 'power1.out', stagger: 0.05, duration: 0.22 },
         0.08,
       )
-    } else if (transition === 'bloom') {
-      // Bloom: image desaturates into focus, text fades in
-      tl.fromTo(imgEl,
-        { filter: 'blur(14px) brightness(.55)', scale: 1.06 },
-        { filter: 'blur(0px) brightness(1)', scale: 1, ease: 'power2.out', duration: 0.48 },
-        0,
-      )
-      tl.fromTo(items,
-        { opacity: 0, y: 20 },
-        { opacity: 1, y: 0, ease: 'power2.out', stagger: 0.07, duration: 0.35 },
-        0.1,
-      )
     }
 
     // ── Phase 2: exit (0.65 → 1.0) — standard slide-up exit, skip on last ────
@@ -527,12 +482,14 @@ function NarrativeScene({ img, eyebrow, line, overlay, transition, particles, is
   return (
     <section ref={secRef}
       className="relative h-screen flex items-center justify-center overflow-hidden"
-      style={bgImg(img, overlay)}
     >
-      {/* image wrapper — needed for bloom filter target */}
+      {/* image layer — isolated div so bloom filter only affects this, not text */}
       <div ref={imgRef} className="absolute inset-0" aria-hidden style={{
         backgroundImage: `${overlay}, url(${img})`,
-        backgroundSize: 'cover', backgroundPosition: 'center',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        willChange: 'filter',
       }} />
       {/* vignette */}
       <div className="absolute inset-0 pointer-events-none" style={{
@@ -545,11 +502,6 @@ function NarrativeScene({ img, eyebrow, line, overlay, transition, particles, is
         className="relative flex flex-col items-center text-center px-6 max-w-4xl mx-auto"
         style={{ zIndex: 10 }}
       >
-        <p className="sl mb-5 font-semibold tracking-[.34em] uppercase"
-          style={{ fontFamily: T.sans, fontSize: T.eyebrow,
-            color: 'rgba(245,166,35,.80)', opacity: 0 }}>
-          {eyebrow}
-        </p>
         <p className="sl font-bold italic leading-[1.10]"
           style={{ fontFamily: T.serif, fontSize: T.slide, color: '#fff',
             textShadow: '0 3px 54px rgba(0,0,0,.97)', maxWidth: 700,
@@ -731,12 +683,11 @@ export function LandingPage() {
         {/* §2 Brand Intro — editorial, magazine.jpg */}
         <BrandIntro />
 
-        {/* §3 Narrative Journey — 5 uniquely-animated pinned scenes */}
+        {/* §3 Narrative Journey — 4 uniquely-animated pinned scenes */}
         {SCENES.map((s, i) => (
           <NarrativeScene
             key={i}
             img={s.img}
-            eyebrow={s.eyebrow}
             line={s.line}
             overlay={s.overlay}
             transition={s.transition as TransitionType}
