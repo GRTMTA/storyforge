@@ -205,6 +205,11 @@ export function AuthScreen() {
 
   const switchMode = (next: 'signin' | 'signup') => {
     setMode(next)
+    setEmail('')
+    setPassword('')
+    setName('')
+    setConfirmPw('')
+    setAcceptTerms(false)
     setErrors({})
     setServerError(null)
     setShowPw(false)
@@ -493,7 +498,7 @@ export function AuthScreen() {
               onClick={() => switchMode(mode === 'signin' ? 'signup' : 'signin')}
               className="text-[#F5A623] hover:text-[#F7C05A] font-medium transition-colors cursor-pointer"
             >
-              {mode === 'signin' ? 'Sign up free' : 'Sign in'}
+              {mode === 'signin' ? 'Sign up for free' : 'Sign in'}
             </button>
           </p>
         </div>

@@ -32,4 +32,19 @@
     font-weight: 700;
     line-height: 1.2;
   }
+
+  /*
+   * Prevent browser autofill from overriding the dark input background.
+   * The inset box-shadow trick covers the browser-injected white/yellow fill
+   * while keeping text readable in the dark theme.
+   */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 1000px #2D2D5E inset !important;
+    box-shadow: 0 0 0 1000px #2D2D5E inset !important;
+    -webkit-text-fill-color: #F8F6F0 !important;
+    caret-color: #F8F6F0;
+  }
 }
