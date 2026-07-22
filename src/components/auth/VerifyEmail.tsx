@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle, XCircle, Loader2, ArrowRight, BookOpen } from 'lucide-react'
+import { CheckCircle, XCircle, Loader2, ArrowRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 /**
@@ -71,9 +71,8 @@ export function VerifyEmail() {
     <div className="min-h-screen bg-[#1A1A3E] flex flex-col items-center justify-center px-4">
       {/* Logo */}
       <div className="flex items-center gap-3 mb-12">
-        <div className="w-10 h-10 rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/30 flex items-center justify-center">
-          <BookOpen className="w-5 h-5 text-[#F5A623]" />
-        </div>
+        <img src="/logo-scribis.png" alt="Scribis" width={40} height={40}
+          style={{ objectFit: 'contain' }} />
         <span className="text-xl font-bold text-[#F8F6F0]">Scribis</span>
       </div>
 

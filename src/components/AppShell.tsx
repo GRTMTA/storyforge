@@ -14,7 +14,7 @@ import { ScenesTab } from '@/components/play/ScenesTab'
 import { BranchesTab } from '@/components/play/BranchesTab'
 import { ReviewStep } from '@/components/review/ReviewStep'
 import {
-  BookOpen, LayoutDashboard, Library, Settings, LogOut,
+  LayoutDashboard, Library, Settings, LogOut,
   ChevronRight, PanelLeft, PanelLeftClose,
   Wand2, List, GitBranch, BarChart2,
 } from 'lucide-react'
@@ -157,9 +157,8 @@ function Sidebar({
     >
       {/* Logo row */}
       <div className="flex items-center gap-3 px-3 py-4 shrink-0">
-        <div className="w-9 h-9 rounded-xl bg-[#F5A623]/15 border border-[#F5A623]/30 flex items-center justify-center shrink-0">
-          <BookOpen className="w-5 h-5 text-[#F5A623]" />
-        </div>
+        <img src="/logo-scribis.png" alt="Scribis" width={36} height={36}
+          className="shrink-0" style={{ objectFit: 'contain' }} />
         {isOpen && (
           <span
             className="font-bold text-[#F8F6F0] text-base whitespace-nowrap overflow-hidden"

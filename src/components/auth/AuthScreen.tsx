@@ -133,9 +133,8 @@ function BrandPanel() {
       <div className="relative">
         {/* Logo */}
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-[#F5A623]/20 border border-[#F5A623]/30 flex items-center justify-center">
-            <BookOpen className="w-5.5 h-5.5 text-[#F5A623]" />
-          </div>
+          <img src="/logo-scribis.png" alt="Scribis" width={44} height={44}
+            style={{ objectFit: 'contain' }} />
           <span className="text-2xl font-bold text-[#F8F6F0] tracking-tight">Scribis</span>
         </div>
       </div>

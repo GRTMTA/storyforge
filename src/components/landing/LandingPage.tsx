@@ -24,7 +24,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import { BookOpen, GitBranch, Wand2, Bookmark, RefreshCw, Compass } from 'lucide-react'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -81,16 +80,6 @@ const SCENES = [
     particles:  34,
     isLast:     true,
   },
-] as const
-
-// ─── Timeline nodes ───────────────────────────────────────────────────────────
-const NODES = [
-  { num: '01', icon: BookOpen,   title: 'Create',  body: 'Start your story from scratch or from a template of your choosing.' },
-  { num: '02', icon: GitBranch,  title: 'Branch',  body: 'Every choice forks the path into infinite directions and outcomes.' },
-  { num: '03', icon: Wand2,      title: 'Generate',body: 'AI writes scenes, dialogue, and choices in seconds — in your voice.' },
-  { num: '04', icon: Bookmark,   title: 'Save',    body: 'Bookmark any moment. Your progress is never lost.' },
-  { num: '05', icon: RefreshCw,  title: 'Revisit', body: 'Go back to any savepoint and branch from there. Explore every path.' },
-  { num: '06', icon: Compass,    title: 'Explore', body: 'Your entire story tree is always at hand — visual, clear, yours.' },
 ] as const
 
 // ─── Typography ───────────────────────────────────────────────────────────────
@@ -164,7 +153,7 @@ function ProgressBar() {
 }
 
 // ─── Header — logo only, no Sign In button ────────────────────────────────────
-function Header({ onStart }: { onStart: () => void }) {
+function Header() {
   const [solid, setSolid] = useState(false)
   useEffect(() => {
     const h = () => setSolid(window.scrollY > 60)
@@ -182,27 +171,13 @@ function Header({ onStart }: { onStart: () => void }) {
       }}>
       {/* Logo */}
       <div className="flex items-center gap-2.5 select-none">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-          style={{ background: 'rgba(245,166,35,.12)', border: '1px solid rgba(245,166,35,.28)' }}>
-          <BookOpen className="w-4 h-4 text-[#F5A623]" />
-        </div>
+        <img src="/logo-scribis.png" alt="Scribis" width={32} height={32}
+          style={{ objectFit: 'contain' }} />
         <span className="font-bold tracking-wide text-white"
           style={{ fontFamily: T.serif, fontSize: '1.1rem' }}>
           Scribis
         </span>
       </div>
-      {/* Subtle CTA link — not a full Sign In button */}
-      <button onClick={onStart} className="cursor-pointer text-sm font-medium"
-        style={{
-          background: 'none', border: 'none',
-          color: 'rgba(255,255,255,.46)', fontFamily: T.sans,
-          transition: 'color .2s',
-        }}
-        onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#F5A623')}
-        onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.46)')}
-      >
-        Start Your Story →
-      </button>
     </header>
   )
 }
@@ -592,215 +567,6 @@ function NarrativeScene({ img, eyebrow, line, overlay, transition, particles, is
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// §4  HORIZONTAL TIMELINE — pinned, translates left with scroll
-//     On mobile (< 768px) falls back to vertical stacked layout
-// ══════════════════════════════════════════════════════════════════════════════
-function Timeline() {
-  const wrapRef  = useRef<HTMLElement>(null)
-  const trackRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const wrap  = wrapRef.current
-    const track = trackRef.current
-    if (!wrap || !track) return
-
-    // Only run horizontal scroll on desktop
-    const isMobile = window.innerWidth < 768
-    if (isMobile) {
-      // Mobile: just fade in items vertically
-      const st = ScrollTrigger.create({
-        trigger: wrap, start: 'top 80%',
-        onEnter: () => {
-          gsap.fromTo(track.querySelectorAll('.tn'),
-            { opacity: 0, y: 40 },
-            { opacity: 1, y: 0, duration: 0.65, ease: 'power2.out', stagger: 0.1 },
-          )
-        },
-      })
-      return () => st.kill()
-    }
-
-    // Desktop: horizontal scroll pin
-    // Distance to translate = total track width - viewport width
-    const getDistance = () => track.scrollWidth - window.innerWidth
-
-    const st = ScrollTrigger.create({
-      trigger:          wrap,
-      start:            'top top',
-      end:              () => `+=${getDistance()}`,
-      pin:              true,
-      pinSpacing:       true,
-      anticipatePin:    1,
-      scrub:            1.5,
-      invalidateOnRefresh: true,
-      onUpdate: (self) => {
-        const dist = getDistance()
-        gsap.set(track, { x: -dist * self.progress })
-      },
-    })
-
-    // Highlight active node as it enters center
-    const nodes = track.querySelectorAll<HTMLElement>('.tn')
-    nodes.forEach((node) => {
-      ScrollTrigger.create({
-        trigger: node,
-        containerAnimation: undefined,
-        start: 'left center',
-        onEnter:      () => node.classList.add('tn-active'),
-        onLeaveBack:  () => node.classList.remove('tn-active'),
-        scroller: wrap,
-      })
-    })
-
-    return () => { st.kill() }
-  }, [])
-
-  return (
-    <section ref={wrapRef} className="relative overflow-hidden"
-      style={{ background: 'linear-gradient(135deg,#08082a 0%,#0e0e30 100%)',
-        minHeight: '100vh', display: 'flex', flexDirection: 'column',
-        justifyContent: 'center' }}
-    >
-      {/* section header — stays static */}
-      <div className="relative z-10 text-center px-6 pt-16 pb-8 md:pt-20 md:pb-12 shrink-0">
-        <p className="font-semibold tracking-[.32em] uppercase mb-4"
-          style={{ fontFamily: T.sans, fontSize: T.eyebrow, color: 'rgba(245,166,35,.78)' }}>
-          How it works
-        </p>
-        <h2 className="font-bold leading-[1.07]"
-          style={{ fontFamily: T.serif, fontSize: T.section, color: '#fff',
-            textShadow: '0 2px 24px rgba(0,0,0,.8)' }}>
-          Your story,<br />
-          <em style={{ color: '#F5A623', fontStyle: 'italic' }}>one branch at a time.</em>
-        </h2>
-        <p className="mt-5 hidden md:block"
-          style={{ fontFamily: T.sans, fontSize: T.small,
-            color: 'rgba(255,255,255,.30)', letterSpacing: '.12em' }}>
-          ← scroll to explore →
-        </p>
-      </div>
-
-      {/* horizontal track */}
-      <div ref={trackRef}
-        className="relative z-10 flex md:flex-nowrap flex-wrap justify-center md:justify-start
-                   gap-6 px-8 md:px-24 pb-16 md:pb-20"
-        style={{ willChange: 'transform' }}
-      >
-        {/* connecting line — desktop only */}
-        <div className="hidden md:block absolute"
-          style={{
-            top: '50%', left: '9rem', right: '9rem',
-            height: 1, background: 'rgba(245,166,35,.18)', zIndex: 0,
-          }} />
-
-        {NODES.map(({ num, icon: Icon, title, body }, i) => (
-          <div key={i} className="tn relative flex flex-col items-center text-center"
-            style={{
-              minWidth: 'clamp(200px,26vw,280px)',
-              padding: '2rem 1.5rem',
-              zIndex: 1,
-              opacity: 1, // mobile: animated via GSAP; desktop: always visible
-            }}
-          >
-            {/* node circle */}
-            <div className="relative mb-6">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center"
-                style={{
-                  background: 'rgba(245,166,35,.08)',
-                  border: '1px solid rgba(245,166,35,.22)',
-                  transition: 'background .3s, border-color .3s',
-                }}>
-                <Icon className="w-5 h-5 text-[#F5A623]" />
-              </div>
-              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
-                style={{
-                  background: '#F5A623', color: '#0c0c1e',
-                  fontSize: '0.6rem', fontFamily: T.sans, fontWeight: 700,
-                }}>
-                {num}
-              </span>
-            </div>
-            <h3 className="font-bold mb-3"
-              style={{ fontFamily: T.serif, fontSize: 'clamp(1.15rem,2vw,1.35rem)', color: '#fff' }}>
-              {title}
-            </h3>
-            <p className="leading-relaxed"
-              style={{ fontFamily: T.sans, fontSize: 'clamp(.9rem,1.4vw,1rem)',
-                color: 'rgba(255,255,255,.46)', maxWidth: 220 }}>
-              {body}
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// §5  SOCIAL PROOF — simple fade-in trust section
-// ══════════════════════════════════════════════════════════════════════════════
-function SocialProof() {
-  const ref = useRef<HTMLElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    gsap.fromTo(ref.current.querySelectorAll('.sp'),
-      { opacity: 0, y: 30 },
-      { opacity: 1, y: 0, duration: 0.8, ease: 'power2.out', stagger: 0.12,
-        scrollTrigger: { trigger: ref.current, start: 'top 72%', toggleActions: 'play none none reverse' } },
-    )
-  }, [])
-  return (
-    <section ref={ref}
-      className="relative overflow-hidden"
-      style={{
-        background: 'linear-gradient(180deg,#04040c 0%,#09091e 50%,#04040c 100%)',
-        padding: 'clamp(4rem,8vw,7rem) clamp(1.5rem,5vw,4rem)',
-      }}
-    >
-      <div className="max-w-4xl mx-auto flex flex-col items-center text-center gap-10">
-
-        <p className="sp font-semibold tracking-[.32em] uppercase"
-          style={{ fontFamily: T.sans, fontSize: T.eyebrow,
-            color: 'rgba(245,166,35,.76)', opacity: 0 }}>
-          Trusted by storytellers
-        </p>
-
-        {/* stat */}
-        <div className="sp" style={{ opacity: 0 }}>
-          <span style={{ fontFamily: T.serif, fontSize: 'clamp(3rem,6vw,5rem)',
-            color: '#F5A623', fontWeight: 700, lineHeight: 1 }}>
-            1,000+
-          </span>
-          <p style={{ fontFamily: T.sans, fontSize: T.body,
-            color: 'rgba(255,255,255,.44)', marginTop: '0.5rem' }}>
-            storytellers already crafting worlds with Scribis
-          </p>
-        </div>
-
-        {/* divider */}
-        <div className="sp h-[1px] w-full max-w-xs"
-          style={{ background: 'linear-gradient(90deg,transparent,rgba(245,166,35,.28),transparent)', opacity: 0 }} />
-
-        {/* testimonial */}
-        <blockquote className="sp"
-          style={{ fontFamily: T.serif, fontSize: 'clamp(1.15rem,2.2vw,1.45rem)',
-            color: 'rgba(255,255,255,.68)', fontStyle: 'italic', lineHeight: 1.7,
-            maxWidth: 620, opacity: 0 }}>
-          "I've tried every AI writing tool out there. Scribis is the first one that actually feels
-          like a co-author — it understands where my story wants to go."
-          <footer style={{ fontFamily: T.sans, fontSize: T.small,
-            color: 'rgba(245,166,35,.6)', fontStyle: 'normal',
-            marginTop: '1rem', letterSpacing: '.08em' }}>
-            — Alex M., interactive fiction author
-          </footer>
-        </blockquote>
-
-      </div>
-    </section>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
 // §6  FINAL CTA — gate.jpg, bloom reveal (blur→focus, strong entrance)
 // ══════════════════════════════════════════════════════════════════════════════
 function FinalCTA({ onStart, onSignIn }: { onStart: () => void; onSignIn: () => void }) {
@@ -883,10 +649,8 @@ function Footer() {
       style={{ background: '#03030a', borderTop: '1px solid rgba(255,255,255,.05)' }}
     >
       <div className="flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-          style={{ background: 'rgba(245,166,35,.10)', border: '1px solid rgba(245,166,35,.20)' }}>
-          <BookOpen className="w-3.5 h-3.5 text-[#F5A623]" />
-        </div>
+        <img src="/logo-scribis.png" alt="Scribis" width={28} height={28}
+          style={{ objectFit: 'contain' }} />
         <span className="font-semibold"
           style={{ color: 'rgba(255,255,255,.54)', fontFamily: T.serif, fontSize: '1rem' }}>
           Scribis
@@ -959,7 +723,7 @@ export function LandingPage() {
 
       <div style={{ background: '#04040c', color: '#fff', overflowX: 'hidden' }}>
         <ProgressBar />
-        <Header onStart={goToApp} />
+        <Header />
 
         {/* §1 Hero — book.png */}
         <Hero onStart={goToApp} onSignIn={goToLogin} />
@@ -980,12 +744,6 @@ export function LandingPage() {
             isLast={'isLast' in s && !!s.isLast}
           />
         ))}
-
-        {/* §4 Horizontal Timeline — features */}
-        <Timeline />
-
-        {/* §5 Social Proof */}
-        <SocialProof />
 
         {/* §6 Final CTA — gate.jpg bloom */}
         <FinalCTA onStart={goToApp} onSignIn={goToLogin} />
