@@ -64,7 +64,7 @@ export function VerifyEmail() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const goToDashboard = () => {
-    window.location.href = '/'
+    window.location.href = '/app'
   }
 
   return (
