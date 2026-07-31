@@ -1,160 +1,60 @@
-# StoryForge 🪄
+# Scribis
 
-**AI-powered multi-agent interactive narrative generation**
+AI-powered interactive storytelling for narratives that evolve through meaningful player choices.
 
-A full-stack web app built on React + Supabase + OpenRouter. Players define characters & settings, then navigate branching AI-generated stories with full state tracking, guardrail enforcement, and visual story maps.
+> Selected theme: **July Challenge: Reimagine Creative Industries with AI**.
 
----
+## Problem statement
 
-## Tech Stack
+Interactive stories are difficult to create and maintain. Writers must plan branching paths, preserve character continuity, track unresolved plot threads, and prevent later scenes from contradicting earlier decisions. Most generative writing tools produce isolated passages rather than a coherent, explorable story world.
 
-| Layer | Tech |
-|-------|------|
-| Frontend | React 18, TypeScript, Tailwind CSS v4, shadcn/ui primitives |
-| Backend | Supabase Edge Functions (Deno/TypeScript) |
-| Database | Supabase PostgreSQL + pgVector |
-| Auth | Supabase Auth (email/password) |
-| AI | OpenRouter API (`meta-llama/llama-3.2-3b-instruct:free`) |
-| Hosting | Vercel / Netlify |
+Scribis addresses the gap between free-form AI writing and structured interactive fiction. It gives writers and players a way to create branching narratives while retaining control over characters, tone, content boundaries, and story state.
 
----
+## Solution description
 
-## Quick Start
+Scribis is a full-stack web application where users can:
 
-### 1. Clone & install
+- Define a story's title, genre, setting, tone, and narrative guardrails.
+- Create characters with roles, traits, biographies, relationships, and character-specific rules.
+- Generate scenes and multiple consequential choices with AI.
+- Enter custom choices instead of following only predefined branches.
+- Track plot threads, clues, character state, branches, and savepoints.
+- Review the complete narrative as an interactive story map.
+- Export a story as Markdown or structured JSON.
 
-```bash
-git clone https://github.com/yourname/storyforge
-cd storyforge
-npm install
+The application combines a guided writing workflow with persistent branching state, allowing AI-generated scenes to remain part of a manageable narrative rather than becoming disconnected text.
+
+## AI approach and architecture
+
+Scribis uses Groq-hosted `llama-3.3-70b-versatile` through server-side Supabase Edge Functions. API credentials are never exposed to the browser.
+
+```mermaid
+flowchart LR
+    U[React client] -->|authenticated request| E[Supabase Edge Functions]
+    E -->|story and character context| D[(Supabase PostgreSQL)]
+    E -->|structured prompt| G[Groq / Llama 3.3 70B]
+    G -->|JSON response| E
+    E -->|validate, check, persist| D
+    E -->|scene, choices, state updates| U
+    D --- V[pgvector retrieval functions]
 ```
 
-### 2. Create a Supabase project
+The AI layer consists of three Edge Functions:
 
-1. Go to [supabase.com](https://supabase.com) and create a new project
-2. Open **SQL Editor** and run `supabase/migrations/001_initial_schema.sql`
-3. Copy your project URL and anon key
+- `generate-scene` builds context-aware prompts from project settings, active characters, previous scenes, player choices, plot state, and guardrails. It requests structured JSON, retries failed or unsuitable generations, checks lexical overlap to reduce repetition, records consistency issues and guardrail violations, then persists the scene and choices.
+- `ai-polish` improves setting descriptions, character descriptions, and guardrail wording while preserving the author's intent.
+- `suggest-traits` proposes character traits from the supplied character context.
 
-### 3. Configure environment
+PostgreSQL stores projects, characters, scenes, choices, branches, savepoints, relationships, and evolving story state. Row-level security isolates each user's data. The schema also includes pgvector-backed `match_scenes` and `match_characters` functions for semantic retrieval as the narrative grows.
 
-```bash
-cp .env.example .env.local
-# Edit .env.local with your Supabase credentials
-```
+## Selected challenge theme
 
-```env
-VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
+**July Challenge: Reimagine Creative Industries with AI**
 
-### 4. Deploy the Edge Function
+Scribis reimagines creative writing by turning generative AI into a collaborative storytelling engine. The model is not treated as an unrestricted text generator: users establish the world and its boundaries, while the system supplies contextual scenes, choices, and writing assistance. This keeps the creator in control and makes AI part of an iterative creative workflow.
 
-```bash
-# Install Supabase CLI
-npm install -g supabase
+## How IBM Bob was used
 
-# Login
-supabase login
+IBM Bob was the sole AI development assistant used to build Scribis. It supported the complete development workflow, including repository exploration, architecture planning, frontend and backend implementation, database and Edge Function development, code refinement, debugging, and documentation. All product decisions and final changes remained under human direction and review.
 
-# Link to your project
-supabase link --project-ref your-project-ref
-
-# Set secrets
-supabase secrets set GROQ_API_KEY=your-groq-key
-
-# Deploy
-supabase functions deploy generate-scene
-```
-
-### 5. Run locally
-
-```bash
-npm run dev
-```
-
----
-
-## Features
-
-### Step 1 — Project Setup
-- Define story title, genre, tone, and setting
-- Create characters with roles (protagonist / antagonist / supporting), traits, and backstory
-- Configure AI guardrails (content rules enforced at generation time)
-
-### Step 2 — Play
-- AI generates the opening scene via Edge Function + OpenRouter Llama 3.2
-- 2–4 narrative choices presented after each scene
-- Live story state panel (plot threads, clues discovered)
-- Guardrail violation warnings shown inline
-- Loading states for every AI operation
-
-### Step 3 — Review
-- Interactive story map (React Flow flowchart of all scenes/branches)
-- Linear timeline view
-- Export to Markdown (`.md`) or structured JSON
-- Story statistics (scenes, depth, endings, characters)
-
----
-
-## Project Structure
-
-```
-storyforge/
-├── src/
-│   ├── components/
-│   │   ├── AppShell.tsx          # Root layout + nav + step routing
-│   │   ├── auth/AuthScreen.tsx   # Sign in / sign up
-│   │   ├── setup/SetupStep.tsx   # 3-panel story setup wizard
-│   │   ├── play/PlayStep.tsx     # Scene display + choices
-│   │   ├── review/
-│   │   │   ├── ReviewStep.tsx    # Stats + export
-│   │   │   └── StoryMap.tsx      # React Flow visualization
-│   │   └── ui/                   # Button, Card, Input, Textarea, Badge
-│   ├── contexts/
-│   │   ├── AuthContext.tsx       # Supabase auth state
-│   │   └── StoryContext.tsx      # Global story state (useReducer)
-│   ├── services/
-│   │   └── storyService.ts       # DB calls + Edge Function invocations
-│   ├── types/
-│   │   ├── story.ts              # Domain interfaces
-│   │   └── database.ts           # Supabase table types
-│   └── lib/
-│       ├── supabase.ts           # Supabase client
-│       └── utils.ts              # cn() helper
-├── supabase/
-│   ├── migrations/
-│   │   └── 001_initial_schema.sql
-│   └── functions/
-│       └── generate-scene/
-│           └── index.ts          # Deno Edge Function
-└── public/
-    └── favicon.svg
-```
-
----
-
-## Supabase Free Tier Usage
-
-| Resource | Limit | StoryForge Usage |
-|----------|-------|-----------------|
-| Database | 500 MB | ~1 KB/scene, ~50 KB/project |
-| Edge Functions | 500K calls/month | 1 call/scene |
-| Auth MAU | 50,000 | — |
-| Storage | 1 GB | Exports only (optional) |
-| Bandwidth | 5 GB/month | ~10 KB/API response |
-
----
-
-## OpenRouter Free Models
-
-The app defaults to `meta-llama/llama-3.2-3b-instruct:free`. You can swap the `MODEL` constant in `supabase/functions/generate-scene/index.ts` to any free model:
-
-- `mistralai/mistral-7b-instruct:free`
-- `google/gemma-2-9b-it:free`
-- `meta-llama/llama-3.1-8b-instruct:free`
-
----
-
-## License
-
-MIT
+IBM Bob is a development tool rather than part of Scribis at runtime. The application's user-facing AI features are provided by the Groq-backed Supabase Edge Functions described above.
